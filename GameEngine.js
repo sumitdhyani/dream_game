@@ -124,7 +124,7 @@ export class GameEngine
     switch(key) {
       case keyboardKeys.UP:
         // move player up
-        this.self.position.y++
+        this.self.position.y--
         break
 
       case keyboardKeys.DOWN:

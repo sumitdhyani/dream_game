@@ -2,6 +2,7 @@ import { CELL, GRID_W, GRID_H } from './GlobalGameReference.js'
 import { Events, keyboardKeys,  Evt_RoundEnd, Evt_RoundStart, Evt_PlayerPositionsUpdate } from './GlobalGameReference.js'
 import { Player, Position} from './GlobalGameReference.js'
 import { GameEngine } from './GameEngine.js'
+import { GameeEngineFSM } from './GameEngineFSM.js'
 export class GameRenderer extends Phaser.Scene {
   constructor() { super("game") 
     this.engine = null
@@ -11,16 +12,28 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   create() {
-    this.engine = new GameEngine(this.onGameEvt.bind(this))
+    const engine = new GameEngine(this.onGameEvt.bind(this))
     const players = [
       new Player(1, "p1", new Position(1, 1), 0x00ff00),
       new Player(2, "p2", new Position(18, 2), 0x00aaff),
       new Player(3, "p3", new Position(5, 17), 0xffaa00)
     ]
-    this.engine.startGame(players, 
-                          players[0],
-                          new Position(Math.floor(Math.random() * GRID_W),
-                                       Math.floor(Math.random() * GRID_H)))
+
+    this.GameEngineFSM = new GameeEngineFSM(engine,
+                                            players,
+                                            players[0],
+                                            new Position(Math.floor(Math.random() * GRID_W),
+                                                         Math.floor(Math.random() * GRID_H)),
+                                            {info: (str) => console.log(str),
+                                             warn:  (str) => console.log(str),
+                                             error: (str) => console.log(str),
+                                             debug:  (str) => console.log(str)})
+
+    this.GameEngineFSM.start()
+    // this.engine.startGame(players, 
+    //                       players[0],
+    //                       new Position(Math.floor(Math.random() * GRID_W),
+    //                                    Math.floor(Math.random() * GRID_H)))
 
     console.log("Game started!")
 
@@ -29,19 +42,19 @@ export class GameRenderer extends Phaser.Scene {
     this.drawGrid()
 
     this.input.keyboard.on("keydown-LEFT", () => {
-      this.engine.onKeyPress(keyboardKeys.LEFT)
+      this.GameEngineFSM.handleEvent("key_press", keyboardKeys.LEFT)
     })
 
     this.input.keyboard.on("keydown-RIGHT", () => {
-      this.engine.onKeyPress(keyboardKeys.RIGHT)
+      this.GameEngineFSM.handleEvent("key_press", keyboardKeys.RIGHT)
     })
 
     this.input.keyboard.on("keydown-UP", () => {
-      this.engine.onKeyPress(keyboardKeys.UP)
+      this.GameEngineFSM.handleEvent("key_press", keyboardKeys.UP)
     })
 
     this.input.keyboard.on("keydown-DOWN", () => {
-      this.engine.onKeyPress(keyboardKeys.DOWN)
+      this.GameEngineFSM.handleEvent("key_press", keyboardKeys.DOWN)
     })
 
     this.events.once("shutdown", () => {
@@ -60,6 +73,7 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   handleGameOver(evt_game_over) {
+    this.GameEngineFSM.handleEvent("game_over")
     this.destroyPreviousRound()
     // Logic to handle game over
     const gameSummary = evt_game_over.game_summary
@@ -79,8 +93,8 @@ export class GameRenderer extends Phaser.Scene {
     )
   }
 
-  
   handleRoundEnd(evt_round_end) {
+    this.GameEngineFSM.handleEvent("round_end")
     // Logic to handle end of round
     const roundSummary = evt_round_end.roundSummary
     const roundSummaryText = `${roundSummary.eliminated_player.name} eliminated in Round ${roundSummary.round_number}`
@@ -99,12 +113,12 @@ export class GameRenderer extends Phaser.Scene {
 
     setTimeout(() => {
       roundSummaryTextElement.destroy()
-      this.engine.onReadyToHost()
+      this.GameEngineFSM.handleEvent("ready_to_host")
     }, 2000)
   }
 
   handleRoundStart(evt_round_start) {
-    console.log(`Round started, nnumber: ${evt_round_start.round}, duration: ${evt_round_start.duration}`)
+    console.log(`Round started, number: ${evt_round_start.round}, duration: ${evt_round_start.duration}`)
     this.playersRects = []
 
     evt_round_start.players.forEach(p => {
@@ -148,7 +162,7 @@ export class GameRenderer extends Phaser.Scene {
   handleGameStart() {
     // Logic to handle game start
     console.log("Game started")
-    this.engine.onReadyToHost()
+    this.GameEngineFSM.handleEvent("ready_to_host")
   }
 
   handlePlyerPositionsUpdate(evt_player_positions_update) {
@@ -215,6 +229,10 @@ export class GameRenderer extends Phaser.Scene {
       p.position.x = Phaser.Math.Clamp(p.position.x, 0, GRID_W - 1)
       p.position.y = Phaser.Math.Clamp(p.position.y, 0, GRID_H - 1)
       const r = this.playersRects[p.id]
+      r.visible = p.alive
+      if(!p.alive){
+        console.log(`Player ${p.id} is eliminated, hiding rectangle`)
+      }
       r.x = p.position.x * CELL + CELL / 2
       r.y = p.position.y * CELL + CELL / 2
       r.visible = p.alive
