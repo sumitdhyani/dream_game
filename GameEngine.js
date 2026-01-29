@@ -31,7 +31,7 @@ export class GameEngine
   // List of players: Player[]
   startGame(players, self, target) {
     this.players = players
-    this.activePlayers = players
+    this.activePlayers = Array.from(players)
     this.eliminatedPlayers = []
     this.self = self
     this.roundTarget = target
@@ -54,7 +54,7 @@ export class GameEngine
     this.gameEvtHandler(Events.ROUND_START, new Evt_RoundStart(
       this.currentRound,
       this.roundLength,
-      this.players,
+      this.activePlayers,
       structuredClone(this.roundTarget)// Send copy of the target to avoid mutation issues
     ))
 
@@ -142,7 +142,7 @@ export class GameEngine
     }
 
     // Generate random movements for other players
-    this.players.forEach(player => {
+    this.activePlayers.forEach(player => {
       if (player.id !== this.self.id) {
         // Randomly move other players
         const dx = Math.random() > 0.5 ? 1 : -1;
@@ -151,6 +151,6 @@ export class GameEngine
         player.y += dy
       }
     });
-    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.players))
+    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
   }
 }
