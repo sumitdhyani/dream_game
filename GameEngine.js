@@ -1,78 +1,120 @@
-import { Events, keyboardKeys, Evt_GameStart, Evt_RoundStart, Evt_RoundEnd, Evt_GameOver, Evt_TimerTick } from "./GlobalGameReference.js"
+import { GRID_W,
+         GRID_H,
+         Events,
+         GameSummary,
+         keyboardKeys,
+         Position,
+         RoundSummary,
+         Evt_GameStart,
+         Evt_RoundStart,
+         Evt_RoundEnd,
+         Evt_GameOver,
+         Evt_TimerTick,
+         Evt_PlayerPositionsUpdate } from "./GlobalGameReference.js"
 
 // Make class capture keyboard events and manage game state
 export class GameEngine
 {
   constructor(gameEvtHandler) {
     this.gameEvtHandler = gameEvtHandler
+
+    // ================ State variables =======================
     this.currentRound = 1
-    this.timeToRoundEnd = 30000 // milliseconds
+    this.roundLength = 10000 // milliseconds
+    this.timeToRoundEnd = this.roundLength // milliseconds
     this.roundTimerId = null
     this.roundTarget = null
+    // =========================================================
     this.self = null
   }
 
   // List of players: Player[]
   startGame(players, self, target) {
     this.players = players
+    this.activePlayers = players
+    this.eliminatedPlayers = []
     this.self = self
     this.roundTarget = target
 
     setTimeout(() => {
-      this.self = self
       this.gameEvtHandler(Events.GAME_START, new Evt_GameStart(
         this.timeToRoundEnd,
         players
       ))
-
-      setTimeout(() => {
-        this.handleRoundStart(this.currentRound, this.timeToRoundEnd, this.players)
-      }, 0)
     }, 0)
   }
 
-  handleRoundStart(round, duration, players) {
-    if (this.roundTimerId) {
-      clearInterval(this.roundTimerId)
-    }
+  onReadyToHost() {
+    setTimeout(() => {
+      this.handleRoundStart()
+    }, 0)
+  }
 
+  handleRoundStart() {
     this.gameEvtHandler(Events.ROUND_START, new Evt_RoundStart(
-      round,
-      duration,
-      players,
+      this.currentRound,
+      this.roundLength,
+      this.players,
       structuredClone(this.roundTarget)// Send copy of the target to avoid mutation issues
     ))
 
-    this.setRoundTimer(duration)
+    this.timeToRoundEnd = this.roundLength
+    this.setRoundTimer(this.timeToRoundEnd)
+  }
+
+  rand(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min
+  }
+
+  findLoserIdx() {
+    return this.rand(0, this.activePlayers.length - 1)
+  }
+
+  eliminateLoser() {
+    const loserIdx = this.findLoserIdx()
+    this.activePlayers[loserIdx].alive = false
+    this.eliminatedPlayers.push(this.activePlayers[loserIdx])
+    this.activePlayers.splice(loserIdx, 1)
+    return this.eliminatedPlayers[this.eliminatedPlayers.length - 1]
   }
 
   handleRoundEnd() {
-
+    const eliminatedPlayer = this.eliminateLoser()
+    clearInterval(this.roundTimerId)
+    //this.roundLength = 8000
     
+
+    if (this.activePlayers.length === 1) {
+      this.handleGameOver()
+      return
+    }
+
+    this.roundTarget = new Position(
+      Math.floor(Math.random() * GRID_W),
+      Math.floor(Math.random() * GRID_H)
+    )
+
+    const roundSummary = new RoundSummary(this.currentRound, eliminatedPlayer)
+    this.currentRound++
+    this.gameEvtHandler(Events.ROUND_END, new Evt_RoundEnd(roundSummary)) 
     // Logic to handle end of round
   }
 
-  findEliminatedPlayer(oldPlayers, newPlayers) {
-    const eliminatedPlayer = this.players
-    for (let oldPlayer of oldPlayers) {
-      const stillExists = newPlayers.find(p => p.id === oldPlayer.id)
-
-      if (!stillExists) {
-        return oldPlayer
-      }
-    }
-    return null
+  handleGameOver() {
+    const winner_player = this.activePlayers[0]
+    const game_summary = new GameSummary(this.currentRound, this.players, winner_player)
+    this.gameEvtHandler(Events.GAME_OVER, new Evt_GameOver(game_summary))
   }
 
   setRoundTimer(duration) {
     this.timeToRoundEnd = duration
-    this.repetetionInterval = setInterval(() => {
+    this.roundTimerId = setInterval(() => {
       if (this.timeToRoundEnd > 0) {
         this.timeToRoundEnd -= 1000
         this.gameEvtHandler(Events.TIMER_TICK, new Evt_TimerTick(this.timeToRoundEnd))
       }
       else {
-        clearInterval(this.repetetionInterval)
+        this.handleRoundEnd()
       }
     }, 1000)
   }
@@ -100,7 +142,7 @@ export class GameEngine
     }
 
     // Generate random movements for other players
-    newPositions = this.players.map(player => {
+    this.players.forEach(player => {
       if (player.id !== this.self.id) {
         // Randomly move other players
         const dx = Math.random() > 0.5 ? 1 : -1;
@@ -108,26 +150,7 @@ export class GameEngine
         player.x += dx
         player.y += dy
       }
-
-      return player;
     });
-
-    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(newPositions))
-  }
-
-  startRound(round, duration, players) {
-    this.gameEvtHandler(Events.ROUND_START, { round, duration, players })
-  }
-
-  endRound(round, eliminated_player) {
-    this.gameEvtHandler(2, { round, eliminated_player })
-  }
-
-  updatePlayerPositions(round, players) {
-    this.gameEvtHandler(3, { round, players })
-  }
-
-  endGame(winner_player, game_summary) {
-    this.gameEvtHandler(4, { winner_player, game_summary })
+    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.players))
   }
 }

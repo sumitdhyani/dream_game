@@ -40,11 +40,30 @@ export class Evt_RoundStart {
   }
 }
 
-export class Evt_RoundEnd {
-  constructor(round,
-    eliminated_player) {
-    this.round = round
+export class RoundSummary {
+  constructor(round_number, eliminated_player) {
+    this.round_number = round_number
     this.eliminated_player = eliminated_player
+  }
+}
+
+export class Evt_RoundEnd {
+  constructor(roundSummary) {
+    this.roundSummary = roundSummary
+  }
+}
+
+export class GameSummary {
+  constructor(total_rounds, players, winner) {
+    this.total_rounds = total_rounds
+    this.players = players
+    this.winner = winner
+  }
+}
+
+export class Evt_GameOver {
+  constructor(game_summary) {
+    this.game_summary = game_summary
   }
 }
 
@@ -54,12 +73,7 @@ export class Evt_PlayerPositionsUpdate {
   }
 }
 
-export class Evt_GameOver {
-  constructor(winner_player, game_summary) {
-    this.winner_player = winner_player
-    this.game_summary = game_summary
-  }
-}
+
 
 export class Evt_TimerTick {
   constructor(time_left) {
@@ -73,7 +87,8 @@ export const Events = {
   ROUND_END: 2,
   PLAYER_POSITIONS_UPDATE: 3,
   GAME_OVER: 4,
-  TIMER_TICK: 5
+  TIMER_TICK: 5,
+  READY_TO_HOST: 6
 }
 
 export const keyboardKeys = {

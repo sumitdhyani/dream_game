@@ -22,6 +22,8 @@ export class GameRenderer extends Phaser.Scene {
                           new Position(Math.floor(Math.random() * GRID_W),
                                        Math.floor(Math.random() * GRID_H)))
 
+    console.log("Game started!")
+
     this.pendingEvents = []// List of {evt, evtData}
 
     this.drawGrid()
@@ -48,18 +50,61 @@ export class GameRenderer extends Phaser.Scene {
 
   }
 
-  handleRoundEnd() {
+  destroyPreviousRound() {
     this.playersRects.forEach(r => r.destroy())
     this.countdown.destroy()
     this.targetRect.destroy()
     this.playersRects = null
     this.countdown = null
     this.targetRect = null
+  }
+
+  handleGameOver(evt_game_over) {
+    this.destroyPreviousRound()
+    // Logic to handle game over
+    const gameSummary = evt_game_over.game_summary
+    const winnerName = gameSummary.winner.name
+    const gameSummaryText = `Game Over! , participants:\n ${gameSummary.players.map(p => p.name).toString()}\n Winner: ${winnerName}`
+    console.log(`Game over! Winner: ${winnerName}`)
+    const gameOverTextElement = this.add.text(
+      0,   // x
+      0,   // y  
+      gameSummaryText,
+      {
+        fontSize: "24px",
+        color: "#ffffff",
+        fontFamily: "monospace",
+        align: "center"
+      }
+    )
+  }
+
+  
+  handleRoundEnd(evt_round_end) {
     // Logic to handle end of round
-    console.log("Round ended")
+    const roundSummary = evt_round_end.roundSummary
+    const roundSummaryText = `${roundSummary.eliminated_player.name} eliminated in Round ${roundSummary.round_number}`
+    console.log(`Round ended, summary: ${roundSummaryText}`)
+    this.destroyPreviousRound()
+    const roundSummaryTextElement = this.add.text(
+      GRID_W * CELL / 2,   // x
+      GRID_H * CELL / 2,   // y
+      roundSummaryText,
+      {
+        fontSize: "20px",
+        color: "#ffffff",
+        fontFamily: "monospace"
+      }
+    )
+
+    setTimeout(() => {
+      roundSummaryTextElement.destroy()
+      this.engine.onReadyToHost()
+    }, 2000)
   }
 
   handleRoundStart(evt_round_start) {
+    console.log(`Round started, nnumber: ${evt_round_start.round}, duration: ${evt_round_start.duration}`)
     this.playersRects = []
 
     evt_round_start.players.forEach(p => {
@@ -100,9 +145,20 @@ export class GameRenderer extends Phaser.Scene {
     this.countdown.setText(time_left_sec.toString())
   }
 
+  handleGameStart() {
+    // Logic to handle game start
+    console.log("Game started")
+    this.engine.onReadyToHost()
+  }
+
+  handlePlyerPositionsUpdate(evt_player_positions_update) {
+    this.renderPlayers(evt_player_positions_update.players)
+  }
+
   processGameEvt(evt, evtData) {
     switch (evt) {
       case Events.GAME_START:
+        this.handleGameStart()
         break
       case Events.ROUND_START: // Evt_RoundStart
         this.handleRoundStart(evtData)
@@ -111,10 +167,13 @@ export class GameRenderer extends Phaser.Scene {
         this.handleRoundEnd(evtData)
         break
       case Events.PLAYER_POSITIONS_UPDATE: // Evt_PlayerPositionsUpdate
-        this.renderPlayers(evtData)
+        this.handlePlyerPositionsUpdate(evtData)
         break
       case Events.TIMER_TICK: // Evt_TimerTick
         this.handleRoundTick(evtData)
+        break
+      case Events.GAME_OVER: // Evt_GameOver
+        this.handleGameOver(evtData)
         break
     }
   }
