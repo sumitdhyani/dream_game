@@ -2,7 +2,7 @@ import { CELL, GRID_W, GRID_H } from './GlobalGameReference.js'
 import { Events, keyboardKeys,  Evt_RoundEnd, Evt_RoundStart, Evt_PlayerPositionsUpdate } from './GlobalGameReference.js'
 import { Player, Position} from './GlobalGameReference.js'
 import { GameEngine } from './GameEngine.js'
-import { GameeEngineFSM } from './GameEngineFSM.js'
+import { GameEngineFSM } from './GameEngineFSM.js'
 export class GameRenderer extends Phaser.Scene {
   constructor() { super("game") 
     this.engine = null
@@ -12,18 +12,18 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   create() {
-    const engine = new GameEngine(this.onGameEvt.bind(this))
     const players = [
       new Player(1, "p1", new Position(1, 1), 0x00ff00),
       new Player(2, "p2", new Position(18, 2), 0x00aaff),
       new Player(3, "p3", new Position(5, 17), 0xffaa00)
     ]
 
-    this.GameEngineFSM = new GameeEngineFSM(engine,
+    this.GameEngineFSM = new GameEngineFSM(this.onGameEvt.bind(this),
                                             players,
                                             players[0],
-                                            new Position(Math.floor(Math.random() * GRID_W),
-                                                         Math.floor(Math.random() * GRID_H)),
+                                            ()=> {
+                                              return new Position(Math.floor(Math.random() * GRID_W),
+                                                                  Math.floor(Math.random() * GRID_H))},
                                             {info: (str) => console.log(str),
                                              warn:  (str) => console.log(str),
                                              error: (str) => console.log(str),
@@ -73,7 +73,6 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   handleGameOver(evt_game_over) {
-    this.GameEngineFSM.handleEvent("game_over")
     this.destroyPreviousRound()
     // Logic to handle game over
     const gameSummary = evt_game_over.game_summary
@@ -94,8 +93,6 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   handleRoundEnd(evt_round_end) {
-    this.GameEngineFSM.handleEvent("round_end")
-    this.pendingEvents = []
     // Logic to handle end of round
     const roundSummary = evt_round_end.roundSummary
     const roundSummaryText = `${roundSummary.eliminated_player.name} eliminated in Round ${roundSummary.round_number}`
@@ -123,7 +120,7 @@ export class GameRenderer extends Phaser.Scene {
 
     this.playersRects = []
     evt_round_start.players.forEach(p => {
-      console.log(`Wink! Rendering player ${p.id} at (${p.position.x}, ${p.position.y})`)
+      //console.log(`Wink! Rendering player ${p.id} at (${p.position.x}, ${p.position.y})`)
       this.playersRects[p.id] = this.add.rectangle(
         p.position.x * CELL + CELL / 2,
         p.position.y * CELL + CELL / 2,
@@ -156,7 +153,7 @@ export class GameRenderer extends Phaser.Scene {
 
   handleRoundTick(evt_round_tick) {
     const time_left_sec = Math.floor(evt_round_tick.time_left / 1000)
-    console.log(`time left: ${time_left_sec}`)
+    //console.log(`time left: ${time_left_sec}`)
     this.countdown.setText(time_left_sec.toString())
   }
 
@@ -167,6 +164,7 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   handlePlyerPositionsUpdate(evt_player_positions_update) {
+    console.log(`handlePlyerPositionsUpdate`)
     this.renderPlayers(evt_player_positions_update.players)
   }
 
@@ -195,7 +193,7 @@ export class GameRenderer extends Phaser.Scene {
 
 
   onGameEvt(evt, evtData) {
-    //console.log(`onGameEvt called evt: ${evt}, evtData: ${evtData}`)
+    console.log(`onGameEvt called evt: ${evt}, evtData: ${evtData}`)
     this.pendingEvents.push({evt, evtData})
   }
 
@@ -215,8 +213,9 @@ export class GameRenderer extends Phaser.Scene {
 
   processPendingEvents() {
     while (this.pendingEvents.length > 0) {
-      const {evt, evtData} = this.pendingEvents.shift()
+      const {evt, evtData} = this.pendingEvents[0]
       this.processGameEvt(evt, evtData)
+      this.pendingEvents.splice(0, 1)
     }
   }
 
