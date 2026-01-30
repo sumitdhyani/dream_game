@@ -1,7 +1,6 @@
 import { CELL, GRID_W, GRID_H } from './GlobalGameReference.js'
 import { Events, keyboardKeys,  Evt_RoundEnd, Evt_RoundStart, Evt_PlayerPositionsUpdate } from './GlobalGameReference.js'
 import { Player, Position} from './GlobalGameReference.js'
-import { GameEngine } from './GameEngine.js'
 import { GameEngineFSM } from './GameEngineFSM.js'
 export class GameRenderer extends Phaser.Scene {
   constructor() { super("game") 
