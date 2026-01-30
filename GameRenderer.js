@@ -95,6 +95,7 @@ export class GameRenderer extends Phaser.Scene {
 
   handleRoundEnd(evt_round_end) {
     this.GameEngineFSM.handleEvent("round_end")
+    this.pendingEvents = []
     // Logic to handle end of round
     const roundSummary = evt_round_end.roundSummary
     const roundSummaryText = `${roundSummary.eliminated_player.name} eliminated in Round ${roundSummary.round_number}`
@@ -118,9 +119,9 @@ export class GameRenderer extends Phaser.Scene {
   }
 
   handleRoundStart(evt_round_start) {
-    console.log(`Round started, number: ${evt_round_start.round}, duration: ${evt_round_start.duration}`)
-    this.playersRects = []
+    console.log(`Round started, number: ${evt_round_start.round}, duration: ${evt_round_start.duration}, players: ${evt_round_start.players.reduce((acc, p) => acc + p.name + ", ", ""  )} `)
 
+    this.playersRects = []
     evt_round_start.players.forEach(p => {
       console.log(`Wink! Rendering player ${p.id} at (${p.position.x}, ${p.position.y})`)
       this.playersRects[p.id] = this.add.rectangle(

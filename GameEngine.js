@@ -120,25 +120,27 @@ export class GameEngine
   }
 
   onKeyPress(key) {
-    console.log(`Key pressed: ${key}`)
-    switch(key) {
-      case keyboardKeys.UP:
-        // move player up
-        this.self.position.y--
-        break
+    if (this.self.alive) {
+      console.log(`Key pressed: ${key}`)
+      switch(key) {
+        case keyboardKeys.UP:
+          // move player up
+          this.self.position.y--
+          break
 
-      case keyboardKeys.DOWN:
-        // move player down
-        this.self.position.y++
-        break
-      case keyboardKeys.LEFT:
-        // move player left
-        this.self.position.x--
-        break
-      case keyboardKeys.RIGHT:
-        // move player right
-        this.self.position.x++
-        break 
+        case keyboardKeys.DOWN:
+          // move player down
+          this.self.position.y++
+          break
+        case keyboardKeys.LEFT:
+          // move player left
+          this.self.position.x--
+          break
+        case keyboardKeys.RIGHT:
+          // move player right
+          this.self.position.x++
+          break 
+      }
     }
 
     // Generate random movements for other players
@@ -147,8 +149,9 @@ export class GameEngine
         // Randomly move other players
         const dx = Math.random() > 0.5 ? 1 : -1;
         const dy = Math.random() > 0.5 ? 1 : -1;
-        player.x += dx
-        player.y += dy
+        player.position.x += dx
+        player.position.y += dy
+        console.log(`Auto-moving player ${player.name} to (${player.position.x}, ${player.position.y}), dx = ${dx}, dy = ${dy}`);
       }
     });
     this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
