@@ -100,17 +100,20 @@ class PlayingRound extends State
               roundNo)
   {
     super()
-    this.gameEvtHandler     = gameEvtHandler
-    this.players            = players
-    this.activePlayers      = activePlayers
-    this.self               = self
-    this.eliminatedPlayers  = eliminatedPlayers
-    this.targetGenerator    = targetGenerator
-    this.roundLength        = roundLength
-    this.timeLeft           = roundLength
-    this.timerrId           = null
-    this.selfFsm            = selfFsm
-    this.roundNo            = roundNo
+    this.gameEvtHandler             = gameEvtHandler
+    this.players                    = players
+    this.activePlayers              = activePlayers
+    this.self                       = self
+    this.eliminatedPlayers          = eliminatedPlayers
+    this.targetGenerator            = targetGenerator
+    this.roundLength                = roundLength
+    this.timeLeft                   = roundLength
+    this.timerId                    = null
+    this.positionBroadcastTimerId   = null
+    this.botTimerIds                = null
+    this.selfFsm                    = selfFsm
+    this.roundNo                    = roundNo
+    this.target                     = this.targetGenerator()
   }
 
   onEntry() {
@@ -118,7 +121,7 @@ class PlayingRound extends State
                         new Evt_RoundStart(this.roundNo,
                                            this.roundLength,
                                            this.activePlayers,
-                                           this.targetGenerator()))
+                                           this.target))
     
     this.timerId = setInterval(()=>{
       if (this.timeLeft > 0) {
@@ -133,10 +136,33 @@ class PlayingRound extends State
       }
     }, 1000)
 
+    this.positionBroadcastTimerId = setInterval(()=>{
+      this.broadcastPlayerPositions();
+    }, 150)
+
+    const botPlayers = this.activePlayers.filter((player)=>{
+      return player.id !== this.self.id
+    })
+
+    this.botTimerIds =
+    botPlayers.map((botPlayer)=>{
+                          return setInterval(() => {
+                                              this.moveBot(botPlayer, this.target)},
+                                            150)})
+                            
+  }
+
+
+  broadcastPlayerPositions() {
+    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
   }
 
   beforeExit() {
     clearInterval(this.timerId)
+    clearInterval(this.positionBroadcastTimerId)
+    this.botTimerIds.forEach(botTimerId=>{
+      clearInterval(botTimerId)
+    })
   }
 
   on_round_end() {
@@ -148,8 +174,39 @@ class PlayingRound extends State
                           this.targetGenerator,
                           this.roundLength,
                           this.selfFsm,
-                          this.roundNo)
+                          this.roundNo,
+                          this.target)
 
+  }
+
+  moveBot(botPlayer, target) {
+    // 10% chance to move randomly (humanize behavior)
+    if (Math.random() < 0.1) {
+      // Random move
+      const directions = [
+        { x: 0, y: -1 },  // UP
+        { x: 0, y: 1 },   // DOWN
+        { x: -1, y: 0 },  // LEFT
+        { x: 1, y: 0 }    // RIGHT
+      ];
+      const randomDir = directions[Math.floor(Math.random() * directions.length)];
+      botPlayer.position.x += randomDir.x;
+      botPlayer.position.y += randomDir.y;
+    } else {
+      // Move optimally towards target
+      const dx = target.x - botPlayer.position.x;
+      const dy = target.y - botPlayer.position.y;
+
+      // Decide whether to move horizontally or vertically
+      // Prioritize the axis with larger distance
+      if (Math.abs(dx) > Math.abs(dy)) {
+        // Move horizontally
+        botPlayer.position.x += dx > 0 ? 1 : -1;
+      } else {
+        // Move vertically
+        botPlayer.position.y += dy > 0 ? 1 : -1;
+      }
+    }
   }
 
   on_key_press(key) {
@@ -175,19 +232,6 @@ class PlayingRound extends State
           break
       }
     }
-
-    // Generate random movements for other players
-    this.activePlayers.forEach(player => {
-      if (player.id !== this.self.id) {
-        // Randomly move other players
-        const dx = Math.random() > 0.5 ? 1 : -1;
-        const dy = Math.random() > 0.5 ? 1 : -1;
-        player.position.x += dx
-        player.position.y += dy
-        //console.log(`Auto-moving player ${player.name} to (${player.position.x}, ${player.position.y}), dx = ${dx}, dy = ${dy}`);
-      }
-    });
-    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
   }
 }
 
@@ -202,35 +246,55 @@ class RoundEnded extends State
               targetGenerator,
               roundLength,
               selfFsm,
-              roundNo)
+              roundNo,
+              target)
   {
     super()
-    this.gameEvtHandler = gameEvtHandler
-    this.players = players
-    this.activePlayers = activePlayers
-    this.self = self
-    this.eliminatedPlayers = eliminatedPlayers
-    this.targetGenerator = targetGenerator
-    this.roundLength = roundLength
-    this.timeLeft = roundLength
-    this.selfFsm = selfFsm
-    this.roundNo = roundNo
+    this.gameEvtHandler     = gameEvtHandler
+    this.players            = players
+    this.activePlayers      = activePlayers
+    this.self               = self
+    this.eliminatedPlayers  = eliminatedPlayers
+    this.targetGenerator    = targetGenerator
+    this.roundLength        = roundLength
+    this.timeLeft           = roundLength
+    this.selfFsm            = selfFsm
+    this.roundNo            = roundNo
+    this.target             = target
   }
 
-  rand(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min
+  findFarthestPlayerIdxs() {
+    console.log(`Active players: ${this.activePlayers.reduce((acc, player) => { return `${acc}|name: ${player.name}, pos: ${player.position.x}:${player.position.y}`},  "")}`)
+    // Calculate distance for each player
+    const distances = this.activePlayers.map((player, idx) => {
+      const dx = player.position.x - this.target.x;
+      const dy = player.position.y - this.target.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      return { idx, distance };
+    });
+
+    // Find maximum distance
+    const maxDistance = Math.max(...distances.map(d => d.distance));
+
+    // Return indices of all players with maximum distance
+    return distances
+      .filter(d => d.distance === maxDistance)
+      .map(d => d.idx);
   }
 
   findLoserIdx() {
-    return this.rand(0, this.activePlayers.length - 1)
+    const farthesPlayerIdxs = this.findFarthestPlayerIdxs(this.activePlayers, this.target)
+    return farthesPlayerIdxs[0]
+    
   }
 
   eliminateLoser() {
     const loserIdx = this.findLoserIdx()
-    this.activePlayers[loserIdx].alive = false
-    this.eliminatedPlayers.push(this.activePlayers[loserIdx])
+    const loserPlayer = this.activePlayers[loserIdx]
+    loserPlayer.alive = false
+    this.eliminatedPlayers.push(loserPlayer)
     this.activePlayers.splice(loserIdx, 1)
-    return this.eliminatedPlayers[this.eliminatedPlayers.length - 1]
+    return loserPlayer
   }
 
   on_launch() {
@@ -272,7 +336,7 @@ class GameOver extends State {
   }
 
   onEntry() {
-    const game_summary = new GameSummary(this.currentRound, this.players, this.winner_player)
+    const game_summary = new GameSummary(this.roundNo, this.players, this.winner_player)
     this.gameEvtHandler(Events.GAME_OVER, new Evt_GameOver(game_summary))
   }
 }

@@ -14,7 +14,8 @@ export class GameRenderer extends Phaser.Scene {
     const players = [
       new Player(1, "p1", new Position(1, 1), 0x00ff00),
       new Player(2, "p2", new Position(18, 2), 0x00aaff),
-      new Player(3, "p3", new Position(5, 17), 0xffaa00)
+      new Player(3, "p3", new Position(5, 17), 0xffaa00),
+      new Player(4, "p4", new Position(5, 17), 0xffffff)
     ]
 
     this.GameEngineFSM = new GameEngineFSM(this.onGameEvt.bind(this),
@@ -28,18 +29,12 @@ export class GameRenderer extends Phaser.Scene {
                                              error: (str) => console.log(str),
                                              debug:  (str) => console.log(str)})
 
-    this.GameEngineFSM.start()
-    // this.engine.startGame(players, 
-    //                       players[0],
-    //                       new Position(Math.floor(Math.random() * GRID_W),
-    //                                    Math.floor(Math.random() * GRID_H)))
-
     console.log("Game started!")
 
+    this.GameEngineFSM.start()
     this.pendingEvents = []// List of {evt, evtData}
-
     this.drawGrid()
-
+    
     this.input.keyboard.on("keydown-LEFT", () => {
       this.GameEngineFSM.handleEvent("key_press", keyboardKeys.LEFT)
     })
@@ -47,7 +42,7 @@ export class GameRenderer extends Phaser.Scene {
     this.input.keyboard.on("keydown-RIGHT", () => {
       this.GameEngineFSM.handleEvent("key_press", keyboardKeys.RIGHT)
     })
-
+    
     this.input.keyboard.on("keydown-UP", () => {
       this.GameEngineFSM.handleEvent("key_press", keyboardKeys.UP)
     })

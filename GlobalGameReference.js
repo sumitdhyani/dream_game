@@ -99,5 +99,5 @@ export const keyboardKeys = {
 }
 
 export const CELL = 32
-export const GRID_W = 20
-export const GRID_H = 20
+export const GRID_W = 40
+export const GRID_H = 40
