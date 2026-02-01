@@ -27,7 +27,8 @@ export class GameRenderer extends Phaser.Scene {
                                             {info: (str) => console.log(str),
                                              warn:  (str) => console.log(str),
                                              error: (str) => console.log(str),
-                                             debug:  (str) => console.log(str)})
+                                             debug:  (str) => console.log(str)},
+                                            150)
 
     console.log("Game started!")
 

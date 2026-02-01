@@ -20,7 +20,8 @@ export class GameEngineFSM extends FSM
               players,
               self,
               targetGenerator,
-              logger)
+              logger,
+              moveDelay)
   {
     let initState = new PreStart(gameEvtHandler,
       players,
@@ -53,7 +54,8 @@ class PreStart extends State
               players,
               self,
               targetGenerator,
-              selfFsm)
+              selfFsm,
+              moveDelay)
   {
     super()
     this.gameEvtHandler     = gameEvtHandler
@@ -63,6 +65,7 @@ class PreStart extends State
     this.self               = self
     this.targetGenerator    = targetGenerator
     this.selfFsm            = selfFsm
+    this.moveDelay          = moveDelay
   }
 
   onEntry() {
@@ -83,7 +86,8 @@ class PreStart extends State
                             this.targetGenerator,
                             10000,
                             this.selfFsm,
-                            1)
+                            1,
+                            this.moveDelay)
   }
 }
 
@@ -97,7 +101,8 @@ class PlayingRound extends State
               targetGenerator,
               roundLength,
               selfFsm,
-              roundNo)
+              roundNo,
+              moveDelay)
   {
     super()
     this.gameEvtHandler             = gameEvtHandler
@@ -109,11 +114,15 @@ class PlayingRound extends State
     this.roundLength                = roundLength
     this.timeLeft                   = roundLength
     this.timerId                    = null
-    this.positionBroadcastTimerId   = null
     this.botTimerIds                = null
     this.selfFsm                    = selfFsm
     this.roundNo                    = roundNo
     this.target                     = this.targetGenerator()
+    this.moveDelay                  = moveDelay
+    this.lastMoveTimes              = {}
+    this.activePlayers.forEach((player)=>{
+      this.lastMoveTimes[player.id] = 0
+    })
   }
 
   onEntry() {
@@ -136,10 +145,6 @@ class PlayingRound extends State
       }
     }, 1000)
 
-    this.positionBroadcastTimerId = setInterval(()=>{
-      this.broadcastPlayerPositions();
-    }, 150)
-
     const botPlayers = this.activePlayers.filter((player)=>{
       return player.id !== this.self.id
     })
@@ -148,14 +153,10 @@ class PlayingRound extends State
     botPlayers.map((botPlayer)=>{
                           return setInterval(() => {
                                               this.moveBot(botPlayer, this.target)},
-                                            150)})
+                                              100)})
                             
   }
 
-
-  broadcastPlayerPositions() {
-    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
-  }
 
   beforeExit() {
     clearInterval(this.timerId)
@@ -175,11 +176,17 @@ class PlayingRound extends State
                           this.roundLength,
                           this.selfFsm,
                           this.roundNo,
-                          this.target)
+                          this.target,
+                          this.moveDelay)
 
   }
 
   moveBot(botPlayer, target) {
+
+    if (Date.now() - this.lastMoveTimes[botPlayer.id] < this.moveDelay) {
+      return
+    }
+
     // 10% chance to move randomly (humanize behavior)
     if (Math.random() < 0.1) {
       // Random move
@@ -207,31 +214,41 @@ class PlayingRound extends State
         botPlayer.position.y += dy > 0 ? 1 : -1;
       }
     }
+
+    this.lastMoveTimes[botPlayer.id] = Date.now()
+    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
   }
 
   on_key_press(key) {
-    if (this.self.alive) {
-      //console.log(`Key pressed: ${key}`)
-      switch (key) {
-        case keyboardKeys.UP:
-          // move player up
-          this.self.position.y--
-          break
-
-        case keyboardKeys.DOWN:
-          // move player down
-          this.self.position.y++
-          break
-        case keyboardKeys.LEFT:
-          // move player left
-          this.self.position.x--
-          break
-        case keyboardKeys.RIGHT:
-          // move player right
-          this.self.position.x++
-          break
-      }
+    if(!this.self.alive ||
+       Date.now() - this.lastMoveTimes[this.self.id] < this.self.moveDelay)
+    {
+      return
     }
+    
+    switch (key) {
+      case keyboardKeys.UP:
+        // move player up
+        this.self.position.y--
+        break
+
+      case keyboardKeys.DOWN:
+        // move player down
+        this.self.position.y++
+        break
+      case keyboardKeys.LEFT:
+        // move player left
+        this.self.position.x--
+        break
+      case keyboardKeys.RIGHT:
+        // move player right
+        this.self.position.x++
+        break
+    }
+
+    this.lastMoveTimes[this.self.id] = Date.now()
+    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
+
   }
 }
 
@@ -319,7 +336,8 @@ class RoundEnded extends State
                             this.targetGenerator,
                             this.roundLength,
                             this.selfFsm,
-                            this.roundNo + 1)
+                            this.roundNo + 1,
+                            this.moveDelay)
   }
 }
 
