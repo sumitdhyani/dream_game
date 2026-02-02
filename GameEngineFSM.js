@@ -12,7 +12,9 @@ import {
   Evt_RoundEnd,
   Evt_GameOver,
   Evt_TimerTick,
-  Evt_PlayerPositionsUpdate
+  Evt_PlayerPositionsUpdate,
+  Evt_SelfReachedTarget,
+  Evt_SelfLeftTarget
 } from "./GlobalGameReference.js"
 export class GameEngineFSM extends FSM
 {
@@ -120,6 +122,7 @@ class PlayingRound extends State
     this.target                     = this.targetGenerator()
     this.moveDelay                  = moveDelay
     this.lastMoveTimes              = {}
+    this.selfReachedTarget          = false
     this.activePlayers.forEach((player)=>{
       this.lastMoveTimes[player.id] = 0
     })
@@ -179,6 +182,27 @@ class PlayingRound extends State
                           this.target,
                           this.moveDelay)
 
+  }
+
+  isPlayerAtTarget(player) {
+    const dx = player.position.x - this.target.x;
+    const dy = player.position.y - this.target.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance <= 1;
+  }
+
+  checkSelfReachedTarget() {
+    if (!this.selfReachedTarget && this.isPlayerAtTarget(this.self)) {
+      this.selfReachedTarget = true
+      this.gameEvtHandler(Events.SELF_REACHED_TARGET, new Evt_SelfReachedTarget(this.self))
+    }
+  }
+
+  checkSelfLeftTarget() {
+    if (this.selfReachedTarget && !this.isPlayerAtTarget(this.self)) {
+      this.selfReachedTarget = false
+      this.gameEvtHandler(Events.SELF_LEFT_TARGET, new Evt_SelfLeftTarget(this.self))
+    }
   }
 
   moveBot(botPlayer, target) {
@@ -248,7 +272,8 @@ class PlayingRound extends State
 
     this.lastMoveTimes[this.self.id] = Date.now()
     this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
-
+    this.checkSelfReachedTarget()
+    this.checkSelfLeftTarget()
   }
 }
 

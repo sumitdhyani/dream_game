@@ -1,5 +1,5 @@
 import { CELL, GRID_W, GRID_H } from './GlobalGameReference.js'
-import { Events, keyboardKeys,  Evt_RoundEnd, Evt_RoundStart, Evt_PlayerPositionsUpdate } from './GlobalGameReference.js'
+import { Events, keyboardKeys,  Evt_RoundEnd, Evt_RoundStart, Evt_PlayerPositionsUpdate, Evt_SelfReachedTarget, Evt_SelfLeftTarget } from './GlobalGameReference.js'
 import { Player, Position} from './GlobalGameReference.js'
 import { GameEngineFSM } from './GameEngineFSM.js'
 export class GameRenderer extends Phaser.Scene {
@@ -8,6 +8,7 @@ export class GameRenderer extends Phaser.Scene {
     this.playersRects = null
     this.countdown = null
     this.targetRect = null
+    this.targetPulseTween = null
   }
 
   create() {
@@ -163,6 +164,40 @@ export class GameRenderer extends Phaser.Scene {
     this.renderPlayers(evt_player_positions_update.players)
   }
 
+  handleSelfReachedTarget(evt_self_reached_target) {
+    console.log(`Self player reached target!`)
+    const player = evt_self_reached_target.player
+    // Change target color to self player's color
+    this.targetRect.setFillStyle(player.color)
+    this.targetRect.setAlpha(1.0)
+    
+    // Stop any existing tween
+    if (this.targetPulseTween) {
+      this.targetPulseTween.stop()
+    }
+    
+    // Add pulsing alpha effect
+    this.targetPulseTween = this.tweens.add({
+      targets: this.targetRect,
+      alpha: [1.0, 0.5, 1.0],
+      duration: 800,
+      loop: -1  // infinite loop
+    })
+  }
+
+  handleSelfLeftTarget(evt_self_left_target) {
+    console.log(`Self player left target!`)
+    // Stop the pulse tween
+    if (this.targetPulseTween) {
+      this.targetPulseTween.stop()
+      this.targetPulseTween = null
+    }
+    
+    // Reset target to original color and alpha
+    this.targetRect.setFillStyle(0xff3333)
+    this.targetRect.setAlpha(1.0)
+  }
+
   processGameEvt(evt, evtData) {
     switch (evt) {
       case Events.GAME_START:
@@ -176,6 +211,12 @@ export class GameRenderer extends Phaser.Scene {
         break
       case Events.PLAYER_POSITIONS_UPDATE: // Evt_PlayerPositionsUpdate
         this.handlePlyerPositionsUpdate(evtData)
+        break
+      case Events.SELF_REACHED_TARGET: // Evt_SelfReachedTarget
+        this.handleSelfReachedTarget(evtData)
+        break
+      case Events.SELF_LEFT_TARGET: // Evt_SelfLeftTarget
+        this.handleSelfLeftTarget(evtData)
         break
       case Events.TIMER_TICK: // Evt_TimerTick
         this.handleRoundTick(evtData)

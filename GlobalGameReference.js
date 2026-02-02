@@ -81,6 +81,18 @@ export class Evt_TimerTick {
   }
 }
 
+export class Evt_SelfReachedTarget {
+  constructor(player) {
+    this.player = player
+  }
+}
+
+export class Evt_SelfLeftTarget {
+  constructor(player) {
+    this.player = player
+  }
+}
+
 export const Events = {
   GAME_START: 0,
   ROUND_START: 1,
@@ -88,7 +100,9 @@ export const Events = {
   PLAYER_POSITIONS_UPDATE: 3,
   GAME_OVER: 4,
   TIMER_TICK: 5,
-  READY_TO_HOST: 6
+  READY_TO_HOST: 6,
+  SELF_REACHED_TARGET: 7,
+  SELF_LEFT_TARGET: 8
 }
 
 export const keyboardKeys = {
