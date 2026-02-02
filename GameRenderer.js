@@ -29,7 +29,7 @@ export class GameRenderer extends Phaser.Scene {
                                              warn:  (str) => console.log(str),
                                              error: (str) => console.log(str),
                                              debug:  (str) => console.log(str)},
-                                            150)
+                                            100)
 
     console.log("Game started!")
 
@@ -91,7 +91,7 @@ export class GameRenderer extends Phaser.Scene {
   handleRoundEnd(evt_round_end) {
     // Logic to handle end of round
     const roundSummary = evt_round_end.roundSummary
-    const roundSummaryText = `${roundSummary.eliminated_player.name} eliminated in Round ${roundSummary.round_number}`
+    const roundSummaryText = `${roundSummary.eliminated_player !== null? roundSummary.eliminated_player.name : "None"} eliminated in Round ${roundSummary.round_number}`
     console.log(`Round ended, summary: ${roundSummaryText}`)
     this.destroyPreviousRound()
     const roundSummaryTextElement = this.add.text(

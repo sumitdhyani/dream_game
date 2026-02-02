@@ -29,7 +29,8 @@ export class GameEngineFSM extends FSM
       players,
       self,
       targetGenerator,
-      null)
+      null,
+      moveDelay)
     super(() => initState,
           logger)
 
@@ -89,7 +90,8 @@ class PreStart extends State
                             10000,
                             this.selfFsm,
                             1,
-                            this.moveDelay)
+                            this.moveDelay,
+                            this.targetGenerator())
   }
 }
 
@@ -104,7 +106,8 @@ class PlayingRound extends State
               roundLength,
               selfFsm,
               roundNo,
-              moveDelay)
+              moveDelay,
+              target)
   {
     super()
     this.gameEvtHandler             = gameEvtHandler
@@ -119,8 +122,9 @@ class PlayingRound extends State
     this.botTimerIds                = null
     this.selfFsm                    = selfFsm
     this.roundNo                    = roundNo
-    this.target                     = this.targetGenerator()
     this.moveDelay                  = moveDelay
+    this.target                     = target
+
     this.lastMoveTimes              = {}
     this.selfReachedTarget          = false
     this.activePlayers.forEach((player)=>{
@@ -156,7 +160,7 @@ class PlayingRound extends State
     botPlayers.map((botPlayer)=>{
                           return setInterval(() => {
                                               this.moveBot(botPlayer, this.target)},
-                                              100)})
+                                              60)})
                             
   }
 
@@ -223,7 +227,8 @@ class PlayingRound extends State
       const randomDir = directions[Math.floor(Math.random() * directions.length)];
       botPlayer.position.x += randomDir.x;
       botPlayer.position.y += randomDir.y;
-    } else {
+    } else 
+      if(!this.isPlayerAtTarget(botPlayer)){
       // Move optimally towards target
       const dx = target.x - botPlayer.position.x;
       const dy = target.y - botPlayer.position.y;
@@ -245,7 +250,7 @@ class PlayingRound extends State
 
   on_key_press(key) {
     if(!this.self.alive ||
-       Date.now() - this.lastMoveTimes[this.self.id] < this.self.moveDelay)
+       Date.now() - this.lastMoveTimes[this.self.id] < this.moveDelay)
     {
       return
     }
@@ -303,6 +308,8 @@ class RoundEnded extends State
     this.selfFsm            = selfFsm
     this.roundNo            = roundNo
     this.target             = target
+
+    this.loserPosition      = null
   }
 
   findFarthestPlayerIdxs() {
@@ -326,12 +333,23 @@ class RoundEnded extends State
 
   findLoserIdx() {
     const farthesPlayerIdxs = this.findFarthestPlayerIdxs(this.activePlayers, this.target)
-    return farthesPlayerIdxs[0]
+
+    // Check if all the players are at equal distance from the target
+    if (farthesPlayerIdxs.length === this.activePlayers.length) {
+      return -1
+    } else {
+      return farthesPlayerIdxs[0]
+    }
     
   }
 
   eliminateLoser() {
     const loserIdx = this.findLoserIdx()
+    if (loserIdx === -1) {
+      return null
+    }
+
+    console.log(`loserIdx: ${loserIdx}, activelayers: ${this.activePlayers.reduce((acc, player)=>{ return acc + " : " + player.name  }, "")}`)
     const loserPlayer = this.activePlayers[loserIdx]
     loserPlayer.alive = false
     this.eliminatedPlayers.push(loserPlayer)
@@ -345,6 +363,8 @@ class RoundEnded extends State
     if (this.activePlayers.length === 1) {
       const winner_player = this.activePlayers[0]
       return new GameOver(this.gameEvtHandler, this.roundNo, this.players, winner_player)
+    } else if (eliminatedPlayer !== null) {
+      this.loserPosition = eliminatedPlayer.position
     }
 
 
@@ -353,6 +373,7 @@ class RoundEnded extends State
   }
 
   on_ready_to_host() {
+    const newTarget = this.loserPosition !== null? this.loserPosition : this.targetGenerator()
     return new PlayingRound(this.gameEvtHandler,
                             this.players,
                             this.activePlayers,
@@ -362,7 +383,8 @@ class RoundEnded extends State
                             this.roundLength,
                             this.selfFsm,
                             this.roundNo + 1,
-                            this.moveDelay)
+                            this.moveDelay,
+                            newTarget)
   }
 }
 
