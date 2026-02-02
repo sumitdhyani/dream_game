@@ -176,12 +176,13 @@ export class GameRenderer extends Phaser.Scene {
       this.targetPulseTween.stop()
     }
     
-    // Add pulsing alpha effect
+    // Add blinking effect (sharp on/off)
     this.targetPulseTween = this.tweens.add({
       targets: this.targetRect,
-      alpha: [1.0, 0.5, 1.0],
-      duration: 800,
-      loop: -1  // infinite loop
+      alpha: [1.0, 0.0],
+      duration: 400,
+      loop: -1,  // infinite loop
+      yoyo: true  // oscillate back and forth
     })
   }
 
