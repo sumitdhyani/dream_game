@@ -1,4 +1,4 @@
-import {FSM, State} from './FSM.js'
+import {FSM, State, CompositeState, SpecialTransition} from './FSM.js'
 import {
   GRID_W,
   GRID_H,
@@ -7,6 +7,7 @@ import {
   keyboardKeys,
   Position,
   RoundSummary,
+  Wormhole,
   Evt_GameStart,
   Evt_RoundStart,
   Evt_RoundEnd,
@@ -14,7 +15,8 @@ import {
   Evt_TimerTick,
   Evt_PlayerPositionsUpdate,
   Evt_SelfReachedTarget,
-  Evt_SelfLeftTarget
+  Evt_SelfLeftTarget,
+  Evt_PlayerTeleported
 } from "./GlobalGameReference.js"
 export class GameEngineFSM extends FSM
 {
@@ -91,11 +93,17 @@ class PreStart extends State
                             this.selfFsm,
                             1,
                             this.moveDelay,
-                            this.targetGenerator())
+                            this.targetGenerator(),
+                            this.selfFsm.logger)
   }
 }
 
-class PlayingRound extends State
+/**
+ * PlayingRound - CompositeState (middle ground approach)
+ * Handles normal gameplay events directly (on_key_press, on_round_end)
+ * Only transitions to Teleporting substate when wormhole is used
+ */
+class PlayingRound extends CompositeState
 {
   constructor(gameEvtHandler,
               players,
@@ -107,9 +115,14 @@ class PlayingRound extends State
               selfFsm,
               roundNo,
               moveDelay,
-              target)
+              target,
+              logger)
   {
-    super()
+    // CompositeState with itself as initial state - no dummy needed
+    //let initState = null
+    super(logger)
+    //initState = this
+
     this.gameEvtHandler             = gameEvtHandler
     this.players                    = players
     this.activePlayers              = activePlayers
@@ -124,20 +137,76 @@ class PlayingRound extends State
     this.roundNo                    = roundNo
     this.moveDelay                  = moveDelay
     this.target                     = target
+    this.wormholes                  = []
 
     this.lastMoveTimes              = {}
     this.selfReachedTarget          = false
     this.activePlayers.forEach((player)=>{
       this.lastMoveTimes[player.id] = 0
     })
+
+    this.generateWormholes()
+  }
+
+  generateWormholes() {
+    const colors = [0x00ffff, 0x00ff00, 0xff00ff, 0xffff00]
+    const wormholeCount = 3
+
+    for (let i = 0; i < wormholeCount; i++) {
+      let entrance, exit
+      let valid = false
+
+      while (!valid) {
+        entrance = new Position(
+          Math.floor(Math.random() * GRID_W),
+          Math.floor(Math.random() * GRID_H)
+        )
+        if (entrance.x === this.target.x && entrance.y === this.target.y) continue
+        let onPlayer = this.activePlayers.some(p => 
+          p.position.x === entrance.x && p.position.y === entrance.y
+        )
+        if (onPlayer) continue
+        let overlaps = this.wormholes.some(w => 
+          w.entrance.x === entrance.x && w.entrance.y === entrance.y
+        )
+        if (overlaps) continue
+        valid = true
+      }
+
+      valid = false
+      while (!valid) {
+        exit = new Position(
+          Math.floor(Math.random() * GRID_W),
+          Math.floor(Math.random() * GRID_H)
+        )
+        if (exit.x === this.target.x && exit.y === this.target.y) continue
+        let overlaps = this.wormholes.some(w => 
+          (w.entrance.x === exit.x && w.entrance.y === exit.y) ||
+          (w.exit.x === exit.x && w.exit.y === exit.y)
+        )
+        if (overlaps) continue
+        if (exit.x === entrance.x && exit.y === entrance.y) continue
+        valid = true
+      }
+
+      const wormhole = new Wormhole(`wh_${i}`, entrance, exit, colors[i % colors.length])
+      this.wormholes.push(wormhole)
+      this.wormholes.forEach(w => {
+        console.log(`Wormhole ${w.id}: entrance (${w.entrance.x}, ${w.entrance.y}) -> exit (${w.exit.x}, ${w.exit.y})`)
+      })
+    }
+
+    console.log(`Generated ${this.wormholes.length} wormholes`)
   }
 
   onEntry() {
+    console.log(`200`)
     this.gameEvtHandler(Events.ROUND_START,
                         new Evt_RoundStart(this.roundNo,
                                            this.roundLength,
                                            this.activePlayers,
-                                           this.target))
+                                           this.target,
+                                           this.wormholes))
     
     this.timerId = setInterval(()=>{
       if (this.timeLeft > 0) {
@@ -156,14 +225,76 @@ class PlayingRound extends State
       return player.id !== this.self.id
     })
 
-    this.botTimerIds =
-    botPlayers.map((botPlayer)=>{
-                          return setInterval(() => {
-                                              this.moveBot(botPlayer, this.target)},
-                                              60)})
-                            
+    this.botTimerIds = botPlayers.map((botPlayer)=>{
+      return setInterval(() => {
+        this.moveBot(botPlayer, this.target)
+      }, 60)
+    })
   }
 
+  on_key_press(key) {
+    if(!this.self.alive ||
+       Date.now() - this.lastMoveTimes[this.self.id] < this.moveDelay)
+    {
+      return
+    }
+    
+    switch (key) {
+      case keyboardKeys.UP:
+        this.self.position.y--
+        break
+      case keyboardKeys.DOWN:
+        this.self.position.y++
+        break
+      case keyboardKeys.LEFT:
+        this.self.position.x--
+        break
+      case keyboardKeys.RIGHT:
+        this.self.position.x++
+        break
+    }
+
+    this.lastMoveTimes[this.self.id] = Date.now()
+    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
+    
+    const teleportState = this.checkWormholeTeleport()
+    if (teleportState) {
+      return teleportState
+    }
+
+    this.checkSelfReachedTarget()
+    this.checkSelfLeftTarget()
+  }
+
+  checkWormholeTeleport() {
+    const wormhole = this.wormholes.find(w => 
+      w.entrance.x === this.self.position.x && 
+      w.entrance.y === this.self.position.y
+    )
+
+    if (wormhole) {
+      this.self.position.x = wormhole.exit.x
+      this.self.position.y = wormhole.exit.y
+      this.gameEvtHandler(Events.PLAYER_TELEPORTED, new Evt_PlayerTeleported(this.self, wormhole))
+      return new Teleporting(this)
+    }
+
+    return null
+  }
+
+  checkSelfReachedTarget() {
+    if (!this.selfReachedTarget && this.isPlayerAtTarget(this.self)) {
+      this.selfReachedTarget = true
+      this.gameEvtHandler(Events.SELF_REACHED_TARGET, new Evt_SelfReachedTarget(this.self))
+    }
+  }
+
+  checkSelfLeftTarget() {
+    if (this.selfReachedTarget && !this.isPlayerAtTarget(this.self)) {
+      this.selfReachedTarget = false
+      this.gameEvtHandler(Events.SELF_LEFT_TARGET, new Evt_SelfLeftTarget(this.self))
+    }
+  }
 
   beforeExit() {
     clearInterval(this.timerId)
@@ -184,104 +315,79 @@ class PlayingRound extends State
                           this.selfFsm,
                           this.roundNo,
                           this.target,
-                          this.moveDelay)
-
+                          this.moveDelay,
+                          this.logger)
   }
 
   isPlayerAtTarget(player) {
-    const dx = player.position.x - this.target.x;
-    const dy = player.position.y - this.target.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    return distance <= 1;
-  }
-
-  checkSelfReachedTarget() {
-    if (!this.selfReachedTarget && this.isPlayerAtTarget(this.self)) {
-      this.selfReachedTarget = true
-      this.gameEvtHandler(Events.SELF_REACHED_TARGET, new Evt_SelfReachedTarget(this.self))
-    }
-  }
-
-  checkSelfLeftTarget() {
-    if (this.selfReachedTarget && !this.isPlayerAtTarget(this.self)) {
-      this.selfReachedTarget = false
-      this.gameEvtHandler(Events.SELF_LEFT_TARGET, new Evt_SelfLeftTarget(this.self))
-    }
+    const dx = player.position.x - this.target.x
+    const dy = player.position.y - this.target.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    return distance <= 1
   }
 
   moveBot(botPlayer, target) {
-
     if (Date.now() - this.lastMoveTimes[botPlayer.id] < this.moveDelay) {
       return
     }
 
-    // 10% chance to move randomly (humanize behavior)
     if (Math.random() < 0.1) {
-      // Random move
       const directions = [
-        { x: 0, y: -1 },  // UP
-        { x: 0, y: 1 },   // DOWN
-        { x: -1, y: 0 },  // LEFT
-        { x: 1, y: 0 }    // RIGHT
-      ];
-      const randomDir = directions[Math.floor(Math.random() * directions.length)];
-      botPlayer.position.x += randomDir.x;
-      botPlayer.position.y += randomDir.y;
-    } else 
-      if(!this.isPlayerAtTarget(botPlayer)){
-      // Move optimally towards target
-      const dx = target.x - botPlayer.position.x;
-      const dy = target.y - botPlayer.position.y;
+        { x: 0, y: -1 },
+        { x: 0, y: 1 },
+        { x: -1, y: 0 },
+        { x: 1, y: 0 }
+      ]
+      const randomDir = directions[Math.floor(Math.random() * directions.length)]
+      botPlayer.position.x += randomDir.x
+      botPlayer.position.y += randomDir.y
+    } else if(!this.isPlayerAtTarget(botPlayer)) {
+      const dx = target.x - botPlayer.position.x
+      const dy = target.y - botPlayer.position.y
 
-      // Decide whether to move horizontally or vertically
-      // Prioritize the axis with larger distance
       if (Math.abs(dx) > Math.abs(dy)) {
-        // Move horizontally
-        botPlayer.position.x += dx > 0 ? 1 : -1;
+        botPlayer.position.x += dx > 0 ? 1 : -1
       } else {
-        // Move vertically
-        botPlayer.position.y += dy > 0 ? 1 : -1;
+        botPlayer.position.y += dy > 0 ? 1 : -1
       }
     }
 
     this.lastMoveTimes[botPlayer.id] = Date.now()
     this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
   }
-
-  on_key_press(key) {
-    if(!this.self.alive ||
-       Date.now() - this.lastMoveTimes[this.self.id] < this.moveDelay)
-    {
-      return
-    }
-    
-    switch (key) {
-      case keyboardKeys.UP:
-        // move player up
-        this.self.position.y--
-        break
-
-      case keyboardKeys.DOWN:
-        // move player down
-        this.self.position.y++
-        break
-      case keyboardKeys.LEFT:
-        // move player left
-        this.self.position.x--
-        break
-      case keyboardKeys.RIGHT:
-        // move player right
-        this.self.position.x++
-        break
-    }
-
-    this.lastMoveTimes[this.self.id] = Date.now()
-    this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
-    this.checkSelfReachedTarget()
-    this.checkSelfLeftTarget()
-  }
 }
 
+class Teleporting extends State
+{
+  constructor(playingRound) {
+    super()
+    this.playingRound = playingRound
+    this.timerId = null
+  }
+
+  onEntry() {
+    const TELEPORT_ANIMATION_DURATION = 600
+    this.timerId = setTimeout(() => {
+      this.playingRound.selfFsm.handleEvent("teleport_complete")
+    }, TELEPORT_ANIMATION_DURATION)
+  }
+
+  beforeExit() {
+    if (this.timerId) clearTimeout(this.timerId)
+  }
+
+  on_key_press(key) {
+    return SpecialTransition.deferralTransition
+  }
+
+  on_teleport_complete() {
+    return this.playingRound
+  }
+
+  on_round_end() {
+    return this.playingRound.on_round_end()
+  }
+}
 
 class RoundEnded extends State
 {
@@ -294,7 +400,9 @@ class RoundEnded extends State
               roundLength,
               selfFsm,
               roundNo,
-              target)
+              target,
+              moveDelay,
+              logger)
   {
     super()
     this.gameEvtHandler     = gameEvtHandler
@@ -308,39 +416,35 @@ class RoundEnded extends State
     this.selfFsm            = selfFsm
     this.roundNo            = roundNo
     this.target             = target
-
+    this.moveDelay          = moveDelay
+    this.logger             = logger
     this.loserPosition      = null
   }
 
   findFarthestPlayerIdxs() {
     console.log(`Active players: ${this.activePlayers.reduce((acc, player) => { return `${acc}|name: ${player.name}, pos: ${player.position.x}:${player.position.y}`},  "")}`)
-    // Calculate distance for each player
     const distances = this.activePlayers.map((player, idx) => {
-      const dx = player.position.x - this.target.x;
-      const dy = player.position.y - this.target.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      return { idx, distance };
-    });
+      const dx = player.position.x - this.target.x
+      const dy = player.position.y - this.target.y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      return { idx, distance }
+    })
 
-    // Find maximum distance
-    const maxDistance = Math.max(...distances.map(d => d.distance));
+    const maxDistance = Math.max(...distances.map(d => d.distance))
 
-    // Return indices of all players with maximum distance
     return distances
       .filter(d => d.distance === maxDistance)
-      .map(d => d.idx);
+      .map(d => d.idx)
   }
 
   findLoserIdx() {
-    const farthesPlayerIdxs = this.findFarthestPlayerIdxs(this.activePlayers, this.target)
+    const farthesPlayerIdxs = this.findFarthestPlayerIdxs()
 
-    // Check if all the players are at equal distance from the target
     if (farthesPlayerIdxs.length === this.activePlayers.length) {
       return -1
     } else {
       return farthesPlayerIdxs[0]
     }
-    
   }
 
   eliminateLoser() {
@@ -367,7 +471,6 @@ class RoundEnded extends State
       this.loserPosition = eliminatedPlayer.position
     }
 
-
     const roundSummary = new RoundSummary(this.roundNo, eliminatedPlayer)
     this.gameEvtHandler(Events.ROUND_END, new Evt_RoundEnd(roundSummary))
   }
@@ -384,7 +487,8 @@ class RoundEnded extends State
                             this.selfFsm,
                             this.roundNo + 1,
                             this.moveDelay,
-                            newTarget)
+                            newTarget,
+                            this.logger)
   }
 }
 

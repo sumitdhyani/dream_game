@@ -1,14 +1,16 @@
 import { CELL, GRID_W, GRID_H } from './GlobalGameReference.js'
 import { Events, keyboardKeys,  Evt_RoundEnd, Evt_RoundStart, Evt_PlayerPositionsUpdate, Evt_SelfReachedTarget, Evt_SelfLeftTarget } from './GlobalGameReference.js'
-import { Player, Position} from './GlobalGameReference.js'
+import { Player, Position, Wormhole, Evt_PlayerTeleported } from './GlobalGameReference.js'
 import { GameEngineFSM } from './GameEngineFSM.js'
 export class GameRenderer extends Phaser.Scene {
-  constructor() { super("game") 
+  constructor() { 
+    super("game") 
     this.engine = null
     this.playersRects = null
     this.countdown = null
     this.targetRect = null
     this.targetPulseTween = null
+    this.wormholeGraphics = []
   }
 
   create() {
@@ -66,6 +68,10 @@ export class GameRenderer extends Phaser.Scene {
     this.playersRects = null
     this.countdown = null
     this.targetRect = null
+    if (this.wormholeGraphics) {
+      this.wormholeGraphics.forEach(g => g.destroy())
+      this.wormholeGraphics = []
+    }
   }
 
   handleGameOver(evt_game_over) {
@@ -145,6 +151,9 @@ export class GameRenderer extends Phaser.Scene {
     // right aligned
     this.countdown.setOrigin(1, 0)
     this.renderPlayers(evt_round_start.players)
+    if (evt_round_start.wormholes) {
+      this.renderWormholes(evt_round_start.wormholes)
+    }
   }
 
   handleRoundTick(evt_round_tick) {
@@ -225,12 +234,68 @@ export class GameRenderer extends Phaser.Scene {
       case Events.GAME_OVER: // Evt_GameOver
         this.handleGameOver(evtData)
         break
+      case Events.PLAYER_TELEPORTED:
+        this.handlePlayerTeleported(evtData)
+        break
     }
   }
 
+  renderWormholes(wormholes) {
+    this.wormholeGraphics = []
+    wormholes.forEach(w => {
+      // Entrance
+      const entranceRect = this.add.rectangle(
+        console.log(`Wormhole entrance at (${w.entrance.x}, ${w.entrance.y})`),
+        w.entrance.x * CELL + CELL / 2,
+        w.entrance.y * CELL + CELL / 2,
+        CELL - 8, CELL - 8, w.color, 0.6
+      )
+      this.wormholeGraphics.push(entranceRect)
+      // Exit
+      const exitRect = this.add.rectangle(
+        w.exit.x * CELL + CELL / 2,
+        w.exit.y * CELL + CELL / 2,
+        CELL - 8, CELL - 8, w.color, 0.6
+      )
+      this.wormholeGraphics.push(exitRect)
+      // Connection line
+      const line = this.add.graphics()
+      line.lineStyle(2, w.color, 0.3)
+      line.lineBetween(
+        w.entrance.x * CELL + CELL / 2,
+        w.entrance.y * CELL + CELL / 2,
+        w.exit.x * CELL + CELL / 2,
+        w.exit.y * CELL + CELL / 2
+      )
+      this.wormholeGraphics.push(line)
+    })
+  }
+
+  handlePlayerTeleported(evt_player_teleported) {
+    const player = evt_player_teleported.player
+    const wormhole = evt_player_teleported.wormhole
+    const r = this.playersRects[player.id]
+    // Fade out at entrance
+    this.tweens.add({
+      targets: r,
+      alpha: 0,
+      duration: 200,
+      onComplete: () => {
+        // Move to exit
+        r.x = wormhole.exit.x * CELL + CELL / 2
+        r.y = wormhole.exit.y * CELL + CELL / 2
+        // Fade in at exit
+        this.tweens.add({
+          targets: r,
+          alpha: 1,
+          duration: 200
+        })
+      }
+    })
+  }
 
   onGameEvt(evt, evtData) {
-    console.log(`onGameEvt called evt: ${evt}, evtData: ${evtData}`)
+    //console.log(`onGameEvt called evt: ${evt}, evtData: ${evtData}`)
     this.pendingEvents.push({evt, evtData})
   }
 
@@ -262,7 +327,7 @@ export class GameRenderer extends Phaser.Scene {
 
   renderPlayers(players) {
     players.forEach(p => {
-      console.log(`Rendering player ${p.id} at (${p.position.x}, ${p.position.y})`)
+      //console.log(`Rendering player ${p.id} at (${p.position.x}, ${p.position.y})`)
       p.position.x = Phaser.Math.Clamp(p.position.x, 0, GRID_W - 1)
       p.position.y = Phaser.Math.Clamp(p.position.y, 0, GRID_H - 1)
       const r = this.playersRects[p.id]

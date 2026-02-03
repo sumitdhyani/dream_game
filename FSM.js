@@ -54,6 +54,7 @@ export class State
 	constructor(isFinal = false){
         this.isFinal = isFinal
         this.name = this.constructor.name
+        this.inited = false
     }
 
     on_launch() { return SpecialTransition.nullTransition }
@@ -62,6 +63,7 @@ export class State
 	final(){ return this.isFinal }
     react(evtName, evtData)
     {
+        this.inited = true
         let expectedEvtHandlerMethodName = "on_" + evtName
         if(this[expectedEvtHandlerMethodName] == undefined)
             throw new UnhandledEvtException(this.name, evtName)
@@ -149,7 +151,8 @@ export class FSM
 		this.started = true
         if (this.currState.final())
             throw new FinalityReachedException()
-        this.handleStateEntry(this.currState)
+        if (!this.currState.inited)
+            this.handleStateEntry(this.currState)
 	}
 
 	processDeferralQueue(){
@@ -182,20 +185,22 @@ export class FSM
 
 export class CompositeState extends State
 {
-	constructor(startStateFetcher, 
-                logger,
+	constructor(logger,
                 isFinal = false)
 	{
         super(isFinal)
-        this.fsm = new FSM(startStateFetcher, logger)
+        this.startStateFetcher = () => this
+        this.fsm = null
+        this.logger = logger
     }
 
     initiateExit(){
-        if(this.fsm.currState instanceof CompositeState){
-            this.fsm.currState.initiateExit()
+        if (this.fsm !== null) {
+            if(this.fsm.currState instanceof CompositeState){
+                this.fsm.currState.initiateExit()
+            }
+            this.fsm.currState.beforeExit()
         }
-        
-        this.fsm.currState.beforeExit()
     }
 
     react(name, evtData)
@@ -204,33 +209,32 @@ export class CompositeState extends State
         try{
             
             transition = super.react(name, evtData)
-        }
-        catch(err){
-            if(!(err instanceof UnhandledEvtException)){
+        }catch(err){
+            if(err instanceof UnhandledEvtException){
+                if (this.fsm == null){
+                    this.fsm = new FSM(this.startStateFetcher, this.logger)
+                    this.fsm.start()
+                }
+                try {
+                    this.fsm.handleEvent(name, evtData)
+                }
+                catch (err) {
+                    if (!(err instanceof FinalityReachedException)) {
+                        throw err
+                    }
+                }
+                transition = SpecialTransition.nullTransition
+            } else {
                 throw err
             }
+
         }finally{
-            if(0 === name.localeCompare('launch')){
-                this.fsm.start()
-                if(transition instanceof State){
-                    this.initiateExit()
-                    return transition
-                }
-                return
-            }else if(transition instanceof State){
+            if(transition instanceof State){
                 this.initiateExit()
                 return transition
             }
         }
 
-        try{
-            this.fsm.handleEvent(name, evtData)
-        }
-        catch(err){
-            if(!(err instanceof FinalityReachedException)){
-                throw err
-            }
-        }
-        return SpecialTransition.nullTransition
+        
     }
 }

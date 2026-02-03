@@ -32,11 +32,12 @@ export class Evt_GameStart {
 }
 
 export class Evt_RoundStart {
-  constructor(round, duration, players, target) {
+  constructor(round, duration, players, target, wormholes) {
     this.round = round
     this.duration = duration
     this.players = players
     this.target = target
+    this.wormholes = wormholes
   }
 }
 
@@ -102,7 +103,26 @@ export const Events = {
   TIMER_TICK: 5,
   READY_TO_HOST: 6,
   SELF_REACHED_TARGET: 7,
-  SELF_LEFT_TARGET: 8
+  SELF_LEFT_TARGET: 8,
+  PLAYER_TELEPORTED: 9
+}
+
+// Wormhole class for teleportation system
+export class Wormhole {
+  constructor(id, entrance, exit, color) {
+    this.id = id
+    this.entrance = entrance // Position
+    this.exit = exit         // Position
+    this.color = color       // Hex color
+  }
+}
+
+// Event for player teleportation
+export class Evt_PlayerTeleported {
+  constructor(player, wormhole) {
+    this.player = player
+    this.wormhole = wormhole
+  }
 }
 
 export const keyboardKeys = {
