@@ -46,7 +46,8 @@ export const SpecialTransition =
 	nullTransition : "nullTransition",
     undefined : "nullTransition",
     null : "nullTransition",
-	deferralTransition : "deferralTransition"
+	deferralTransition : "deferralTransition",
+	ReturnToParent : "ReturnToParent"
 };
 
 export class State
@@ -55,11 +56,14 @@ export class State
         this.isFinal = isFinal
         this.name = this.constructor.name
         this.inited = false
+        this.activeSubState = null
     }
 
     on_launch() { return SpecialTransition.nullTransition }
 	onEntry() { }
 	beforeExit() {}
+	onPreemption() { }
+	onResumeFromSubstate(payload) { }
 	final(){ return this.isFinal }
     react(evtName, evtData)
     {
@@ -118,6 +122,13 @@ export class FSM
         this.processSingleEvent(evtName, evtData)
 	}
 
+    exitStateChain(state) {
+        state.beforeExit()
+        if (state instanceof SubState) {
+            this.exitStateChain(state.parent)
+        }
+    }
+
     processSingleEvent(evtName, evtData){
         this.smBusy = true
         let transition = null
@@ -136,12 +147,27 @@ export class FSM
         }
 
         this.smBusy = false
-        if(transition instanceof State){
-            this.currState.beforeExit()
+        if (transition instanceof SubState) {
+            // Entering a SubState: pause parent, enter substate
+            this.currState.onPreemption()
             this.currState = transition
             this.handleStateEntry(this.currState)
         }
-        else if(SpecialTransition.deferralTransition == transition){
+        else if (transition === SpecialTransition.ReturnToParent) {
+            // SubState returning to parent
+            const payload = this.currState.getReturnPayload()
+            this.currState.beforeExit()
+            this.currState = this.currState.parent
+            this.currState.onResumeFromSubstate(payload)
+            this.processDeferralQueue()
+        }
+        else if (transition instanceof State) {
+            // Regular state transition: exit entire chain, enter new state
+            this.exitStateChain(this.currState)
+            this.currState = transition
+            this.handleStateEntry(this.currState)
+        }
+        else if (SpecialTransition.deferralTransition == transition) {
             this.deferralQueue.push([evtName, evtData])
         }
     }
@@ -182,6 +208,28 @@ export class FSM
 		this.processDeferralQueue()
 	}
 };
+
+export class SubState extends State
+{
+	constructor(parent)
+	{
+        super(false)
+        this.parent = parent
+    }
+
+	getReturnPayload() { return undefined }
+
+	react(evtName, evtData) {
+		try {
+			return super.react(evtName, evtData)
+		} catch (err) {
+			if (err instanceof UnhandledEvtException) {
+				return this.parent.react(evtName, evtData)
+			}
+			throw err
+		}
+	}
+}
 
 export class CompositeState extends State
 {
