@@ -1,4 +1,4 @@
-import {FSM, State, CompositeState, SpecialTransition} from './FSM.js'
+import {FSM, State, SubState, SpecialTransition} from './FSM.js'
 import {
   GRID_W,
   GRID_H,
@@ -99,11 +99,11 @@ class PreStart extends State
 }
 
 /**
- * PlayingRound - CompositeState (middle ground approach)
+ * PlayingRound - State with SubState support
  * Handles normal gameplay events directly (on_key_press, on_round_end)
- * Only transitions to Teleporting substate when wormhole is used
+ * Transitions to TeleportingSubState when wormhole is used
  */
-class PlayingRound extends CompositeState
+class PlayingRound extends State
 {
   constructor(gameEvtHandler,
               players,
@@ -118,10 +118,8 @@ class PlayingRound extends CompositeState
               target,
               logger)
   {
-    // CompositeState with itself as initial state - no dummy needed
-    //let initState = null
-    super(logger)
-    //initState = this
+    super()
+    this.logger = logger
 
     this.gameEvtHandler             = gameEvtHandler
     this.players                    = players
@@ -273,13 +271,16 @@ class PlayingRound extends CompositeState
     )
 
     if (wormhole) {
-      this.self.position.x = wormhole.exit.x
-      this.self.position.y = wormhole.exit.y
-      this.gameEvtHandler(Events.PLAYER_TELEPORTED, new Evt_PlayerTeleported(this.self, wormhole))
-      return new Teleporting(this)
+      return new TeleportingSubState(this, this.selfFsm, this.self, wormhole, this.gameEvtHandler)
     }
 
     return null
+  }
+
+  onResumeFromSubstate(payload) {
+    // Teleport complete - check if player reached target after teleport
+    this.checkSelfReachedTarget()
+    this.checkSelfLeftTarget()
   }
 
   checkSelfReachedTarget() {
@@ -357,18 +358,29 @@ class PlayingRound extends CompositeState
   }
 }
 
-class Teleporting extends State
+class TeleportingSubState extends SubState
 {
-  constructor(playingRound) {
-    super()
-    this.playingRound = playingRound
+  constructor(parent, fsm, player, wormhole, gameEvtHandler) {
+    super(parent)
+    this.fsm = fsm
+    this.player = player
+    this.wormhole = wormhole
+    this.gameEvtHandler = gameEvtHandler
     this.timerId = null
   }
 
   onEntry() {
+    // Perform the teleportation
+    this.player.position.x = this.wormhole.exit.x
+    this.player.position.y = this.wormhole.exit.y
+    
+    // Notify renderer
+    this.gameEvtHandler(Events.PLAYER_TELEPORTED, new Evt_PlayerTeleported(this.player, this.wormhole))
+    
+    // Start animation timer
     const TELEPORT_ANIMATION_DURATION = 600
     this.timerId = setTimeout(() => {
-      this.playingRound.selfFsm.handleEvent("teleport_complete")
+      this.fsm.handleEvent("teleport_complete")
     }, TELEPORT_ANIMATION_DURATION)
   }
 
@@ -381,12 +393,10 @@ class Teleporting extends State
   }
 
   on_teleport_complete() {
-    return this.playingRound
+    return SpecialTransition.ReturnToParent
   }
 
-  on_round_end() {
-    return this.playingRound.on_round_end()
-  }
+  // on_round_end bubbles to parent via SubState.react()
 }
 
 class RoundEnded extends State
