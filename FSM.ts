@@ -59,7 +59,7 @@ export const SpecialTransition = {
 export type SpecialTransitionValue = typeof SpecialTransition[keyof typeof SpecialTransition]
 
 /** The result of a state's event handler */
-export type Transition = State | SpecialTransitionValue | void
+export type Transition<TEventData = unknown> = State<TEventData> | SpecialTransitionValue | void
 
 /** Logger interface for FSM logging */
 export interface Logger {
@@ -68,17 +68,17 @@ export interface Logger {
 }
 
 /** A deferred event in the queue */
-type DeferredEvent = [string, unknown]
+type DeferredEvent<TEventData> = [string, TEventData | null]
 
 // ============================================================================
 // State Class
 // ============================================================================
 
-export class State {
+export class State<TEventData = unknown, TResumePayload = unknown> {
     readonly isFinal: boolean
     readonly name: string
     inited: boolean
-    activeSubState: SubState | null
+    activeSubState: SubState<TEventData, unknown> | null
 
     constructor(isFinal: boolean = false) {
         this.isFinal = isFinal
@@ -88,7 +88,7 @@ export class State {
     }
 
     /** Called after on_launch event */
-    on_launch(): Transition {
+    on_launch(): Transition<TEventData> {
         return SpecialTransition.nullTransition
     }
 
@@ -102,7 +102,7 @@ export class State {
     onPreemption(): void { }
 
     /** Called when a SubState returns control to this state */
-    onResumeFromSubstate(payload: unknown): void { }
+    onResumeFromSubstate(_payload: TResumePayload): void { }
 
     /** Returns true if this is a final state */
     final(): boolean {
@@ -113,7 +113,7 @@ export class State {
      * Process an event and return a transition
      * Event handlers are methods named `on_${evtName}`
      */
-    react(evtName: string, evtData: unknown): Transition {
+    react(evtName: string, evtData: TEventData | null): Transition<TEventData> {
         this.inited = true
         const expectedEvtHandlerMethodName = "on_" + evtName
 
@@ -124,11 +124,11 @@ export class State {
         }
 
         // Call the handler
-        let transition: Transition
+        let transition: Transition<TEventData>
         if (evtData == null) {
-            transition = (handler as () => Transition).call(this)
+            transition = (handler as () => Transition<TEventData>).call(this)
         } else {
-            transition = (handler as (data: unknown) => Transition).call(this, evtData)
+            transition = (handler as (data: TEventData) => Transition<TEventData>).call(this, evtData)
         }
 
         // Validate the transition
@@ -147,14 +147,14 @@ export class State {
 // FSM Class
 // ============================================================================
 
-export class FSM {
-    currState: State
+export class FSM<TEventData = unknown> {
+    currState: State<TEventData>
     readonly logger: Logger
     protected started: boolean
     protected smBusy: boolean
-    protected deferralQueue: DeferredEvent[]
+    protected deferralQueue: DeferredEvent<TEventData>[]
 
-    constructor(startStateFetcher: () => State, logger: Logger) {
+    constructor(startStateFetcher: () => State<TEventData>, logger: Logger) {
         this.currState = startStateFetcher()
         this.logger = logger
         this.started = false
@@ -179,13 +179,13 @@ export class FSM {
     }
 
     /** Send an event to the FSM */
-    handleEvent(evtName: string, evtData: unknown = null): void {
+    handleEvent(evtName: string, evtData: TEventData | null = null): void {
         this.checkIfFSMReadyToHandleEvt()
         this.processSingleEvent(evtName, evtData)
     }
 
     /** Walk up the state chain calling beforeExit on each */
-    protected exitStateChain(state: State): void {
+    protected exitStateChain(state: State<TEventData>): void {
         state.beforeExit()
         if (state instanceof SubState) {
             this.exitStateChain(state.parent)
@@ -193,9 +193,9 @@ export class FSM {
     }
 
     /** Process a single event and handle the resulting transition */
-    protected processSingleEvent(evtName: string, evtData: unknown): void {
+    protected processSingleEvent(evtName: string, evtData: TEventData | null): void {
         this.smBusy = true
-        let transition: Transition = undefined
+        let transition: Transition<TEventData> = undefined
 
         try {
             transition = this.currState.react(evtName, evtData)
@@ -268,7 +268,7 @@ export class FSM {
     }
 
     /** Handle state entry: log, call onEntry, fire launch event, process deferred */
-    protected handleStateEntry(state: State): void {
+    protected handleStateEntry(state: State<TEventData>): void {
         this.logger.info(`Entered "${state.constructor.name}" state`)
         state.onEntry()
         this.handleEvent("launch")
@@ -280,21 +280,21 @@ export class FSM {
 // SubState Class
 // ============================================================================
 
-export class SubState extends State {
-    readonly parent: State
+export class SubState<TEventData = unknown, TReturnPayload = unknown> extends State<TEventData> {
+    readonly parent: State<TEventData>
 
-    constructor(parent: State) {
+    constructor(parent: State<TEventData>) {
         super(false)
         this.parent = parent
     }
 
     /** Override to return a payload when returning to parent */
-    getReturnPayload(): unknown {
+    getReturnPayload(): TReturnPayload | undefined {
         return undefined
     }
 
     /** Process event, bubble to parent if unhandled */
-    react(evtName: string, evtData: unknown): Transition {
+    react(evtName: string, evtData: TEventData | null): Transition<TEventData> {
         try {
             return super.react(evtName, evtData)
         } catch (err) {

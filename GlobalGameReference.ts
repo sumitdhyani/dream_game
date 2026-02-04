@@ -212,6 +212,7 @@ export type GameEventPayload =
     | Evt_SelfReachedTarget
     | Evt_SelfLeftTarget
     | Evt_PlayerTeleported
+    | KeyboardKey
 
 export type GameEvtHandler = (event: EventType, payload: GameEventPayload) => void
 export type TargetGenerator = () => Position

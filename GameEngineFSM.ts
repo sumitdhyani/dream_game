@@ -19,6 +19,7 @@ import {
     Evt_PlayerTeleported,
     Player,
     GameEvtHandler,
+    GameEventPayload,
     TargetGenerator,
     KeyboardKey
 } from "./GlobalGameReference.js"
@@ -27,7 +28,10 @@ import {
 // GameEngineFSM - Main FSM for game logic
 // ============================================================================
 
-export class GameEngineFSM extends FSM {
+/** Union of all game event payload types */
+export type GameEvent = GameEventPayload | null
+
+export class GameEngineFSM extends FSM<GameEvent> {
     constructor(
         gameEvtHandler: GameEvtHandler,
         players: Player[],
@@ -58,7 +62,7 @@ export class GameEngineFSM extends FSM {
 // PreStart State
 // ============================================================================
 
-class PreStart extends State {
+class PreStart extends State<GameEvent> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
@@ -123,7 +127,7 @@ class PreStart extends State {
  * Handles normal gameplay events directly (on_key_press, on_round_end)
  * Transitions to TeleportingSubState when wormhole is used
  */
-class PlayingRound extends State {
+class PlayingRound extends State<GameEvent, undefined> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
@@ -316,7 +320,7 @@ class PlayingRound extends State {
         return null
     }
 
-    onResumeFromSubstate(payload: unknown): void {
+    onResumeFromSubstate(_payload: undefined): void {
         // Teleport complete - check if player reached target after teleport
         this.checkSelfReachedTarget()
         this.checkSelfLeftTarget()
@@ -404,7 +408,7 @@ class PlayingRound extends State {
 // TeleportingSubState
 // ============================================================================
 
-class TeleportingSubState extends SubState {
+class TeleportingSubState extends SubState<GameEvent, undefined> {
     private readonly fsm: GameEngineFSM
     private readonly player: Player
     private readonly wormhole: Wormhole
@@ -412,7 +416,7 @@ class TeleportingSubState extends SubState {
     private timerId: ReturnType<typeof setTimeout> | null
 
     constructor(
-        parent: State,
+        parent: State<GameEvent>,
         fsm: GameEngineFSM,
         player: Player,
         wormhole: Wormhole,
@@ -460,7 +464,7 @@ class TeleportingSubState extends SubState {
 // RoundEnded State
 // ============================================================================
 
-class RoundEnded extends State {
+class RoundEnded extends State<GameEvent> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
@@ -588,7 +592,7 @@ class RoundEnded extends State {
 // GameOver State
 // ============================================================================
 
-class GameOver extends State {
+class GameOver extends State<GameEvent> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly roundNo: number
     private readonly players: Player[]
