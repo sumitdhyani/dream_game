@@ -1,4 +1,4 @@
-import { FSM, State, SubState, SpecialTransition, Logger, Transition, UnhandledEvtException } from './FSM.js'
+import { FSM, State, SubState, SpecialTransition, Logger, Transition, UnhandledEvtException, SpecialTransitionValue } from './FSM.js'
 import {
     GRID_W,
     GRID_H,
@@ -31,7 +31,7 @@ import {
 /** Union of all game event payload types */
 export type GameEvent = GameEventPayload | null
 
-export class GameEngineFSM extends FSM<GameEvent> {
+export class GameEngineFSM extends FSM<GameEvent, null | undefined> {
     constructor(
         gameEvtHandler: GameEvtHandler,
         players: Player[],
@@ -62,7 +62,7 @@ export class GameEngineFSM extends FSM<GameEvent> {
 // PreStart State
 // ============================================================================
 
-class PreStart extends State<GameEvent> {
+class PreStart extends State<GameEvent, null> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
@@ -100,7 +100,7 @@ class PreStart extends State<GameEvent> {
         }, 0)
     }
 
-    on_ready_to_host(): Transition {
+    on_ready_to_host(): PlayingRound {
         return new PlayingRound(
             this.gameEvtHandler,
             this.players,
@@ -274,7 +274,7 @@ class PlayingRound extends State<GameEvent, undefined> {
         })
     }
 
-    on_key_press(key: KeyboardKey): Transition {
+    on_key_press(key: KeyboardKey): TeleportingSubState | null | undefined{
         if (!this.self.alive ||
             Date.now() - this.lastMoveTimes[this.self.id] < this.moveDelay) {
             return
@@ -349,7 +349,7 @@ class PlayingRound extends State<GameEvent, undefined> {
         }
     }
 
-    on_round_end(): Transition {
+    on_round_end(): RoundEnded {
         return new RoundEnded(
             this.gameEvtHandler,
             this.players,
@@ -416,7 +416,7 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
     private timerId: ReturnType<typeof setTimeout> | null
 
     constructor(
-        parent: State<GameEvent>,
+        parent: State<GameEvent, undefined>,
         fsm: GameEngineFSM,
         player: Player,
         wormhole: Wormhole,
@@ -449,11 +449,11 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
         if (this.timerId) clearTimeout(this.timerId)
     }
 
-    on_key_press(key: KeyboardKey): Transition {
+    on_key_press(key: KeyboardKey): SpecialTransitionValue {
         return SpecialTransition.deferralTransition
     }
 
-    on_teleport_complete(): Transition {
+    on_teleport_complete(): SpecialTransitionValue {
         return SpecialTransition.ReturnToParent
     }
 
@@ -464,7 +464,7 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
 // RoundEnded State
 // ============================================================================
 
-class RoundEnded extends State<GameEvent> {
+class RoundEnded extends State<GameEvent, null> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
@@ -555,7 +555,7 @@ class RoundEnded extends State<GameEvent> {
         return loserPlayer
     }
 
-    on_launch(): Transition {
+    on_launch(): GameOver | void {
         const eliminatedPlayer = this.eliminateLoser()
 
         if (this.activePlayers.length === 1) {
@@ -569,7 +569,7 @@ class RoundEnded extends State<GameEvent> {
         this.gameEvtHandler(Events.ROUND_END, new Evt_RoundEnd(roundSummary))
     }
 
-    on_ready_to_host(): Transition {
+    on_ready_to_host(): PlayingRound {
         const newTarget = this.loserPosition !== null ? this.loserPosition : this.targetGenerator()
         return new PlayingRound(
             this.gameEvtHandler,
@@ -592,7 +592,7 @@ class RoundEnded extends State<GameEvent> {
 // GameOver State
 // ============================================================================
 
-class GameOver extends State<GameEvent> {
+class GameOver extends State<GameEvent, null> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly roundNo: number
     private readonly players: Player[]
