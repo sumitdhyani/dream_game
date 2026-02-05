@@ -21,7 +21,8 @@ import {
     GameEvtHandler,
     GameEventPayload,
     TargetGenerator,
-    KeyboardKey
+    KeyboardKey,
+    EventType
 } from "./GlobalGameReference.js"
 
 // ============================================================================
@@ -30,6 +31,15 @@ import {
 
 /** Union of all game event payload types */
 export type GameEvent = GameEventPayload | null
+
+function propagateGameEvt(logger: Logger, gameEvtHandler: GameEvtHandler | null, type: EventType, evtData: GameEventPayload) : void {
+    if (!gameEvtHandler) {
+        logger.warn("No game event handler registered to receive game events in GameEngineFSM")
+        return
+    }
+
+    gameEvtHandler(type, evtData)
+}
 
 export class GameEngineFSM extends FSM<GameEvent, null | undefined> {
     constructor(
@@ -46,7 +56,8 @@ export class GameEngineFSM extends FSM<GameEvent, null | undefined> {
             self,
             targetGenerator,
             null!,  // Will be set after super()
-            moveDelay
+            logger,
+            moveDelay,
         )
         super(() => initState, logger)
 
@@ -63,12 +74,13 @@ export class GameEngineFSM extends FSM<GameEvent, null | undefined> {
 // ============================================================================
 
 class PreStart extends State<GameEvent, null> {
-    private readonly gameEvtHandler: GameEvtHandler
+    private readonly gameEvtHandler: GameEvtHandler | null
     private readonly players: Player[]
     private readonly activePlayers: Player[]
     private readonly eliminatedPlayers: Player[]
     private readonly self: Player
     private readonly targetGenerator: TargetGenerator
+    private readonly logger: Logger
     private readonly moveDelay: number
     selfFsm!: GameEngineFSM
 
@@ -78,6 +90,7 @@ class PreStart extends State<GameEvent, null> {
         self: Player,
         targetGenerator: TargetGenerator,
         selfFsm: GameEngineFSM,
+        logger: Logger,
         moveDelay: number
     ) {
         super()
@@ -88,12 +101,13 @@ class PreStart extends State<GameEvent, null> {
         this.self = self
         this.targetGenerator = targetGenerator
         this.selfFsm = selfFsm
+        this.logger = logger
         this.moveDelay = moveDelay
     }
 
     onEntry(): void {
         setTimeout(() => {
-            this.gameEvtHandler(Events.GAME_START, new Evt_GameStart(
+            propagateGameEvt(this.logger, this.gameEvtHandler, Events.GAME_START, new Evt_GameStart(
                 0, // timeToRoundEnd - not used in Evt_GameStart
                 this.activePlayers
             ))
@@ -113,8 +127,7 @@ class PreStart extends State<GameEvent, null> {
             1,
             this.moveDelay,
             this.targetGenerator(),
-            this.selfFsm.logger
-        )
+            this.logger)
     }
 }
 
@@ -128,7 +141,7 @@ class PreStart extends State<GameEvent, null> {
  * Transitions to TeleportingSubState when wormhole is used
  */
 class PlayingRound extends State<GameEvent, undefined> {
-    private readonly gameEvtHandler: GameEvtHandler
+    private gameEvtHandler: GameEvtHandler | null
     private readonly players: Player[]
     private readonly activePlayers: Player[]
     private readonly eliminatedPlayers: Player[]
@@ -148,7 +161,7 @@ class PlayingRound extends State<GameEvent, undefined> {
     private readonly logger: Logger
 
     constructor(
-        gameEvtHandler: GameEvtHandler,
+        gameEvtHandler: GameEvtHandler | null,
         players: Player[],
         activePlayers: Player[],
         eliminatedPlayers: Player[],
@@ -159,11 +172,10 @@ class PlayingRound extends State<GameEvent, undefined> {
         roundNo: number,
         moveDelay: number,
         target: Position,
-        logger: Logger
-    ) {
+        logger: Logger)
+    {
         super()
         this.logger = logger
-        this.gameEvtHandler = gameEvtHandler
         this.players = players
         this.activePlayers = activePlayers
         this.self = self
@@ -177,6 +189,8 @@ class PlayingRound extends State<GameEvent, undefined> {
         this.roundNo = roundNo
         this.moveDelay = moveDelay
         this.target = target
+
+        this.gameEvtHandler = gameEvtHandler
         this.wormholes = []
 
         this.lastMoveTimes = {}
@@ -186,6 +200,10 @@ class PlayingRound extends State<GameEvent, undefined> {
         })
 
         this.generateWormholes()
+    }
+
+    registerForGameEvts(gameEvtHandler: GameEvtHandler) {
+        this.gameEvtHandler = gameEvtHandler
     }
 
     private generateWormholes(): void {
@@ -242,19 +260,18 @@ class PlayingRound extends State<GameEvent, undefined> {
 
     onEntry(): void {
         console.log(`200`)
-        this.gameEvtHandler(Events.ROUND_START,
-            new Evt_RoundStart(
+          propagateGameEvt(this.logger, this.gameEvtHandler, Events.ROUND_START, new Evt_RoundStart(
                 this.roundNo,
                 this.roundLength,
                 this.activePlayers,
                 this.target,
                 this.wormholes
-            ))
+          ))
 
         this.timerId = setInterval(() => {
             if (this.timeLeft > 0) {
                 this.timeLeft -= 1000
-                this.gameEvtHandler(Events.TIMER_TICK, new Evt_TimerTick(this.timeLeft))
+                propagateGameEvt(this.logger, this.gameEvtHandler, Events.TIMER_TICK, new Evt_TimerTick(this.timeLeft))
             } else {
                 setTimeout(() => {
                     console.log(`Signalling round end`)
@@ -296,7 +313,7 @@ class PlayingRound extends State<GameEvent, undefined> {
         }
 
         this.lastMoveTimes[this.self.id] = Date.now()
-        this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
+        propagateGameEvt(this.logger, this.gameEvtHandler, Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
 
         const teleportState = this.checkWormholeTeleport()
         if (teleportState) {
@@ -329,14 +346,14 @@ class PlayingRound extends State<GameEvent, undefined> {
     private checkSelfReachedTarget(): void {
         if (!this.selfReachedTarget && this.isPlayerAtTarget(this.self)) {
             this.selfReachedTarget = true
-            this.gameEvtHandler(Events.SELF_REACHED_TARGET, new Evt_SelfReachedTarget(this.self))
+            propagateGameEvt(this.logger, this.gameEvtHandler, Events.SELF_REACHED_TARGET, new Evt_SelfReachedTarget(this.self))
         }
     }
 
     private checkSelfLeftTarget(): void {
         if (this.selfReachedTarget && !this.isPlayerAtTarget(this.self)) {
             this.selfReachedTarget = false
-            this.gameEvtHandler(Events.SELF_LEFT_TARGET, new Evt_SelfLeftTarget(this.self))
+            propagateGameEvt(this.logger, this.gameEvtHandler, Events.SELF_LEFT_TARGET, new Evt_SelfLeftTarget(this.self))
         }
     }
 
@@ -400,7 +417,7 @@ class PlayingRound extends State<GameEvent, undefined> {
         }
 
         this.lastMoveTimes[botPlayer.id] = Date.now()
-        this.gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
+        propagateGameEvt(this.logger, this.gameEvtHandler, Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
     }
 }
 
@@ -412,7 +429,7 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
     private readonly fsm: GameEngineFSM
     private readonly player: Player
     private readonly wormhole: Wormhole
-    private readonly gameEvtHandler: GameEvtHandler
+    private readonly gameEvtHandler: GameEvtHandler | null
     private timerId: ReturnType<typeof setTimeout> | null
 
     constructor(
@@ -420,7 +437,7 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
         fsm: GameEngineFSM,
         player: Player,
         wormhole: Wormhole,
-        gameEvtHandler: GameEvtHandler
+        gameEvtHandler: GameEvtHandler | null
     ) {
         super(parent)
         this.fsm = fsm
@@ -436,7 +453,7 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
         this.player.position.y = this.wormhole.exit.y
 
         // Notify renderer
-        this.gameEvtHandler(Events.PLAYER_TELEPORTED, new Evt_PlayerTeleported(this.player, this.wormhole))
+        propagateGameEvt(this.fsm.logger, this.gameEvtHandler, Events.PLAYER_TELEPORTED, new Evt_PlayerTeleported(this.player, this.wormhole))
 
         // Start animation timer
         const TELEPORT_ANIMATION_DURATION = 600
@@ -465,7 +482,7 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
 // ============================================================================
 
 class RoundEnded extends State<GameEvent, null> {
-    private readonly gameEvtHandler: GameEvtHandler
+    private readonly gameEvtHandler: GameEvtHandler | null
     private readonly players: Player[]
     private readonly activePlayers: Player[]
     private readonly self: Player
@@ -480,7 +497,7 @@ class RoundEnded extends State<GameEvent, null> {
     private loserPosition: Position | null
 
     constructor(
-        gameEvtHandler: GameEvtHandler,
+        gameEvtHandler: GameEvtHandler | null,
         players: Player[],
         activePlayers: Player[],
         self: Player,
@@ -560,13 +577,13 @@ class RoundEnded extends State<GameEvent, null> {
 
         if (this.activePlayers.length === 1) {
             const winner_player = this.activePlayers[0]
-            return new GameOver(this.gameEvtHandler, this.roundNo, this.players, winner_player)
+            return new GameOver(this.gameEvtHandler, this.roundNo, this.players, winner_player, this.logger)
         } else if (eliminatedPlayer !== null) {
             this.loserPosition = eliminatedPlayer.position
         }
 
         const roundSummary = new RoundSummary(this.roundNo, eliminatedPlayer)
-        this.gameEvtHandler(Events.ROUND_END, new Evt_RoundEnd(roundSummary))
+        propagateGameEvt(this.logger, this.gameEvtHandler, Events.ROUND_END, new Evt_RoundEnd(roundSummary))
     }
 
     on_ready_to_host(): PlayingRound {
@@ -593,26 +610,29 @@ class RoundEnded extends State<GameEvent, null> {
 // ============================================================================
 
 class GameOver extends State<GameEvent, null> {
-    private readonly gameEvtHandler: GameEvtHandler
+    private readonly gameEvtHandler: GameEvtHandler | null
     private readonly roundNo: number
     private readonly players: Player[]
     private readonly winner_player: Player
+    private readonly logger: Logger
 
     constructor(
-        gameEvtHandler: GameEvtHandler,
+        gameEvtHandler: GameEvtHandler | null,
         roundNo: number,
         players: Player[],
-        winner_player: Player
+        winner_player: Player,
+        logger: Logger
     ) {
         super()
         this.gameEvtHandler = gameEvtHandler
         this.roundNo = roundNo
         this.players = players
         this.winner_player = winner_player
+        this.logger = logger
     }
 
     onEntry(): void {
         const game_summary = new GameSummary(this.roundNo, this.players, this.winner_player)
-        this.gameEvtHandler(Events.GAME_OVER, new Evt_GameOver(game_summary))
+        propagateGameEvt(this.logger, this.gameEvtHandler, Events.GAME_OVER, new Evt_GameOver(game_summary))
     }
 }

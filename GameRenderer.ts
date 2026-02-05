@@ -17,6 +17,8 @@ import {
     GameEventPayload
 } from './GlobalGameReference.js'
 import { GameEngineFSM } from './GameEngineFSM.js'
+import { setupBridge } from './ComponentIntegration.js'
+import { FGuiEventListener } from './NetworkInterface.js'
 
 // Phaser is loaded globally via script tag in index.html
 declare const Phaser: typeof import('phaser')
@@ -33,8 +35,8 @@ export class GameRenderer extends Phaser.Scene {
     private targetRect: Phaser.GameObjects.Rectangle | null
     private targetPulseTween: Phaser.Tweens.Tween | null
     private wormholeGraphics: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics)[]
-    private GameEngineFSM!: GameEngineFSM
     private pendingEvents: PendingEvent[]
+    guiEvtListener : ((evtType: string, evtData?: GameEventPayload) => void) | null
 
     constructor() {
         super("game")
@@ -45,53 +47,38 @@ export class GameRenderer extends Phaser.Scene {
         this.targetPulseTween = null
         this.wormholeGraphics = []
         this.pendingEvents = []
+        this.guiEvtListener = null
+
+        setupBridge(this)
+    }
+
+    propagateGuiEvt(evt: string, evtData?: GameEventPayload) {
+      if (!this.guiEvtListener) {
+        console.warn("No GUI event listener registered in GameRenderer to receive GUI events")
+        return
+      }
+
+      this.guiEvtListener(evt, evtData)
     }
 
     create(): void {
-        const players = [
-            new Player("1", "p1", new Position(1, 1), 0x00ff00),
-            new Player("2", "p2", new Position(18, 2), 0x00aaff),
-            new Player("3", "p3", new Position(5, 17), 0xffaa00),
-            new Player("4", "p4", new Position(5, 17), 0xffffff)
-        ]
-
-        this.GameEngineFSM = new GameEngineFSM(
-            this.onGameEvt.bind(this),
-            players,
-            players[0],
-            () => {
-                return new Position(
-                    Math.floor(Math.random() * GRID_W),
-                    Math.floor(Math.random() * GRID_H)
-                )
-            },
-            {
-                info: (str: string) => console.log(str),
-                warn: (str: string) => console.log(str),
-            },
-            100
-        )
-
-        console.log("Game started!")
-
-        this.GameEngineFSM.start()
         this.pendingEvents = []
         this.drawGrid()
 
         this.input.keyboard!.on("keydown-LEFT", () => {
-            this.GameEngineFSM.handleEvent("key_press", keyboardKeys.LEFT)
+            this.propagateGuiEvt("key_press", keyboardKeys.LEFT)
         })
 
         this.input.keyboard!.on("keydown-RIGHT", () => {
-            this.GameEngineFSM.handleEvent("key_press", keyboardKeys.RIGHT)
+          this.propagateGuiEvt("key_press", keyboardKeys.RIGHT)
         })
 
         this.input.keyboard!.on("keydown-UP", () => {
-            this.GameEngineFSM.handleEvent("key_press", keyboardKeys.UP)
+            this.propagateGuiEvt("key_press", keyboardKeys.UP)
         })
 
         this.input.keyboard!.on("keydown-DOWN", () => {
-            this.GameEngineFSM.handleEvent("key_press", keyboardKeys.DOWN)
+            this.propagateGuiEvt("key_press", keyboardKeys.DOWN)
         })
 
         this.events.once("shutdown", () => {
@@ -155,7 +142,7 @@ export class GameRenderer extends Phaser.Scene {
 
         setTimeout(() => {
             roundSummaryTextElement.destroy()
-            this.GameEngineFSM.handleEvent("ready_to_host")
+            this.propagateGuiEvt("ready_to_host")
         }, 2000)
     }
 
@@ -204,7 +191,7 @@ export class GameRenderer extends Phaser.Scene {
 
     private handleGameStart(): void {
         console.log("Game started")
-        this.GameEngineFSM.handleEvent("ready_to_host")
+        this.propagateGuiEvt("ready_to_host")
     }
 
     private handlePlayerPositionsUpdate(evt_player_positions_update: Evt_PlayerPositionsUpdate): void {
@@ -324,7 +311,7 @@ export class GameRenderer extends Phaser.Scene {
         })
     }
 
-    private onGameEvt(evt: EventType, evtData: GameEventPayload): void {
+    onGameEvt(evt: EventType, evtData: GameEventPayload): void {
         this.pendingEvents.push({ evt, evtData })
     }
 

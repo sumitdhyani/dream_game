@@ -29,7 +29,6 @@ export const keyboardKeys = {
 } as const
 
 export type KeyboardKey = typeof keyboardKeys[keyof typeof keyboardKeys]
-
 // ============================================================================
 // Core Classes
 // ============================================================================
