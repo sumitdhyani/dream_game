@@ -3,16 +3,18 @@
 ## Overview
 Migrated the entire codebase from JavaScript to TypeScript for type safety and better refactoring confidence.
 
-## Files Migrated
+## Files
 
-| Original JS File | New TS File | Purpose |
-|-----------------|-------------|---------|
-| `FSM.js` | `FSM.ts` | Core state machine framework |
-| `GameEngineFSM.js` | `GameEngineFSM.ts` | Game state logic |
-| `GameRenderer.js` | `GameRenderer.ts` | Phaser rendering scene |
-| `GlobalGameReference.js` | `GlobalGameReference.ts` | Game types and events |
+| File | Purpose |
+|------|---------|
+| `FSM.ts` | Core state machine framework |
+| `NetworkInterface.ts` | Bridge interfaces for component decoupling |
+| `ComponentIntegration.ts` | Bridge setup and wiring |
+| `GameEngineFSM.ts` | Game state logic |
+| `GameRenderer.ts` | Phaser rendering scene |
+| `GlobalGameReference.ts` | Game types and events |
 
-## New Configuration Files
+## Configuration Files
 
 - `tsconfig.json` - TypeScript compiler configuration
 - `package.json` - npm project with dependencies
@@ -50,19 +52,21 @@ The FSM framework now uses three generic type parameters for full type safety:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    GameEngineFSM<GameEvent>                     │
+│                    GameEngineFSM<GUIEventPayload, undefined>    │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌──────────────────────┐    ┌───────────────────────────────┐ │
 │  │ PreStart             │    │ PlayingRound                  │ │
-│  │ State<GameEvent>     │───▶│ State<GameEvent, undefined>   │ │
+│  │ State<GUIEventPayload│───▶│ State<GUIEventPayload,        │ │
+│  │       undefined>     │    │       undefined>              │ │
 │  └──────────────────────┘    └───────────────────────────────┘ │
 │                                         │                       │
 │                                         │ returns SubState      │
 │                                         ▼                       │
 │                              ┌───────────────────────────────┐ │
 │                              │ TeleportingSubState           │ │
-│                              │ SubState<GameEvent, undefined>│ │
+│                              │ SubState<GUIEventPayload,     │ │
+│                              │          undefined>           │ │
 │                              └───────────────────────────────┘ │
 │                                         │                       │
 │                                         │ ReturnToParent        │
@@ -75,10 +79,15 @@ The FSM framework now uses three generic type parameters for full type safety:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### GameEvent Type Definition
+### Event Payload Types
 
-All FSM event data is typed through a discriminated union:
+**GUI Event Payloads (from client to server):**
+```typescript
+// GlobalGameReference.ts
+export type GUIEventPayload = KeyboardKey | GameConfig
+```
 
+**Game Event Payloads (from server to client):**
 ```typescript
 // GlobalGameReference.ts
 export type GameEventPayload = 
@@ -91,10 +100,7 @@ export type GameEventPayload =
     | Evt_SelfReachedTarget
     | Evt_SelfLeftTarget
     | Evt_PlayerTeleported
-    | KeyboardKey              // Added for key_press events
-
-// GameEngineFSM.ts
-export type GameEvent = GameEventPayload | null
+    | KeyboardKey
 ```
 
 ### Typed Event Handlers
@@ -169,32 +175,44 @@ class PlayingRound extends State<GameEvent, TeleportResult> {
 ## Key Type Definitions
 
 ### FSM.ts
-- `Logger` interface for logging abstraction
-- `Transition<TEventData>` type: `State<TEventData> | SpecialTransition | void`
+- `Logger` interface for logging abstraction (`info`, `warn`, `error`, `debug`)
+- `Transition<TEventData, TResumePayload>` type: `State | SpecialTransition | void`
 - Generic `State<TEventData, TResumePayload>` class
-- Generic `FSM<TEventData>` class  
+- Generic `FSM<TEventData, TResumePayload>` class  
 - Generic `SubState<TEventData, TReturnPayload>` class
+
+### NetworkInterface.ts
+- `Logger` type (same interface as FSM.ts)
+- `FGameEvtListener` - Function type for game event handlers
+- `FGuiEventListener` - Function type for GUI event handlers
+- `ClientSideNWInterface` - Client-side network interface
+- `ServerSideNWInterface` - Server-side network interface
 
 ### GlobalGameReference.ts
 - `Position` - `{x: number, y: number}`
-- `Player` - player data with id, position, color
+- `Player` - player data with id, name, position, color, alive
+- `BotPlayer` - extends Player with expertiseLevel
+- `GameConfig` - botPlayers, roundDuration_ms, playerSpeed
 - `Wormhole` - entrance, exit positions with color
-- `EventType` - union of all game event names
-- `GameEventPayload` - union of all event payload types
-- `KeyboardKey` - union of keyboard direction constants
-- `GameEvtHandler` - typed event handler interface
+- `EventType` - union of all game event constants
+- `GuiEventType` - enum of GUI event names
+- `GameEventPayload` - union of all game event payload types
+- `GUIEventPayload` - union of GUI event payload types (KeyboardKey | GameConfig)
+- `GameEvtHandler` - typed game event handler function
+- `TargetGenerator` - function returning Position
 
 ### GameEngineFSM.ts
-- `GameEvent = GameEventPayload | null` - FSM event type
+- `GameEvent = GameEventPayload` - FSM game event type
 - Typed state classes with generic parameters:
-  - `PreStart extends State<GameEvent>`
-  - `PlayingRound extends State<GameEvent, undefined>`
-  - `TeleportingSubState extends SubState<GameEvent, undefined>`
-  - `RoundEnded extends State<GameEvent>`
-  - `GameOver extends State<GameEvent>`
+  - `PreStart extends State<GUIEventPayload, undefined>`
+  - `PlayingRound extends State<GUIEventPayload, undefined>`
+  - `TeleportingSubState extends SubState<GUIEventPayload, undefined>`
+  - `RoundEnded extends State<GUIEventPayload, undefined>`
+  - `GameOver extends State<GUIEventPayload, undefined>`
 
 ### GameRenderer.ts
 - Extends `Phaser.Scene` with typed properties
+- `PendingEvent` interface for event queue
 - Phaser loaded globally via CDN (not ES module import)
 - Uses `declare const Phaser` for type access
 
@@ -202,45 +220,57 @@ class PlayingRound extends State<GameEvent, TeleportResult> {
 
 ## Architectural Changes from Original JavaScript
 
-### 1. CompositeState → SubState Pattern
+### 1. Bridge Pattern for Component Decoupling
 
-**Original JS Architecture:**
-The original JavaScript code used a `CompositeState` pattern for nested state behavior. CompositeState maintained its own internal FSM, which added complexity for simple use cases like teleportation animation.
+**New Architecture:**
+GameRenderer and GameEngineFSM communicate through Network Interfaces:
+- `ClientSideNWInterface` wraps GameRenderer
+- `ServerSideNWInterface` wraps GameEngineFSM
+- `ComponentIntegration.ts` wires the bridge
+
+This enables future swap to real WebSocket networking without changing game code.
+
+### 2. SubState Pattern (Replaced CompositeState)
 
 **New TS Architecture:**
-Replaced with a simpler `SubState` pattern:
+Simple `SubState` pattern for short-lived child states:
 - SubState is a lightweight child state that always returns to its parent
 - No internal FSM overhead
-- Event bubbling via exception catching (aligns with existing FSM patterns)
-- Explicit `ReturnToParent` transition instead of automatic completion
+- Event bubbling via exception catching
+- Explicit `ReturnToParent` transition
 
-### 2. Event Routing Philosophy
+### 3. Client-Driven Game Configuration
 
-**Original JS:**
-Events were routed through CompositeState's internal FSM, which could intercept, transform, or forward events unpredictably.
+**New TS Architecture:**
+Game configuration comes from client (GameRenderer):
+- PreStart emits GAME_START event
+- GameRenderer responds with game_configured event containing GameConfig
+- FSM creates players based on configuration
+
+### 4. Separate Event Types
+
+**New TS Architecture:**
+Clear separation between GUI and Game events:
+- `GUIEventPayload` - Events from client to server (KeyboardKey, GameConfig)
+- `GameEventPayload` - Events from server to client (Evt_RoundStart, etc.)
+
+### 5. Event Routing Philosophy
 
 **New TS:**
-Clear event routing hierarchy:
-1. Events go directly to `currState` (which may be a SubState)
-2. SubState handles or explicitly bubbles to parent via `UnhandledEvtException`
-3. Parent can handle bubbled events and return transitions
-4. No hidden event transformation or interception
+Clear event routing via Bridge:
+1. GUI events: GameRenderer → ClientNW → ServerNW → GameEngineFSM
+2. Game events: GameEngineFSM → ServerNW → ClientNW → GameRenderer
+3. No hidden event transformation or interception
 
-### 3. Lifecycle Hook Changes
-
-**Original JS:**
-- `beforeExit()` served dual purpose: cleanup AND returning results
+### 6. Lifecycle Hook Changes
 
 **New TS:**
 - `beforeExit()` - cleanup only (single responsibility)
 - `getReturnPayload()` - separate method for returning results to parent
-- `onPreemption()` - new hook when parent yields to SubState
-- `onResumeFromSubstate(payload)` - new hook when SubState returns
+- `onPreemption()` - hook when parent yields to SubState
+- `onResumeFromSubstate(payload)` - hook when SubState returns
 
-### 4. State Chain Exit Order
-
-**Original JS:**
-Exit order was not well-defined for nested states.
+### 7. State Chain Exit Order
 
 **New TS:**
 Deterministic walk-up exit via `exitStateChain()`:
@@ -252,56 +282,31 @@ exitStateChain(state: State): void {
     }
 }
 ```
-This mirrors C++ destructor ordering (child before parent).
 
-### 5. Dependency Injection via Constructor
-
-**Original JS:**
-States often accessed globals or reached into other objects for dependencies.
+### 8. Dependency Injection via Constructor
 
 **New TS:**
 All dependencies are passed via constructor parameters:
 ```typescript
 constructor(
     gameEvtHandler: GameEvtHandler,
-    players: Player[],
-    self: Player,
     targetGenerator: TargetGenerator,
-    selfFsm: GameEngineFSM,
-    moveDelay: number
+    logger: Logger
 ) { ... }
 ```
 
-Benefits:
-- Explicit dependency graph
-- Easier testing (mock dependencies)
-- Type-checked at construction time
-- No hidden coupling
-
-### 6. Logger Access Pattern
-
-**Original JS:**
-Logger was accessed inconsistently, sometimes via globals.
+### 9. Logger Interface
 
 **New TS:**
-- `FSM.logger` is `readonly` (public read access)
-- States receive logger via constructor or access via `this.selfFsm.logger`
-- Consistent `Logger` interface: `info(message: string)`, `warn(message: string)`
-
-### 7. Wormhole Rendering Bug Fix
-
-**Original JS (Bug):**
-```javascript
-const entranceRect = this.add.rectangle(
-    console.log(`Wormhole entrance...`),  // ← Bug: console.log returns undefined
-    w.entrance.x * CELL + CELL / 2,       // ← This became y position
-    ...
-)
+Consistent `Logger` interface across all components:
+```typescript
+type Logger = {
+    info(message: string): void
+    warn(message: string): void
+    error(message: string): void
+    debug(message: string): void
+}
 ```
-The `console.log()` was accidentally passed as the x-coordinate, causing entrance rectangles to render at position `undefined` (coerced to 0 or off-screen).
-
-**New TS (Fixed):**
-Only exit is rendered with color; entrance is invisible with just the connecting line (intentional design decision after discovering the bug).
 
 ---
 
@@ -323,18 +328,26 @@ Output goes to `./dist/` folder.
 - Phaser loaded via CDN script tag, accessed as global
 - `index.html` imports from `./dist/` folder
 
-## Folder Structure After Migration
+## Folder Structure
 
 ```
 dream_game/
-├── dist/                    # Compiled JS output (gitignored)
-├── node_modules/            # Dependencies (gitignored)
-├── FSM.ts                   # Source
-├── GameEngineFSM.ts         # Source
-├── GameRenderer.ts          # Source
-├── GlobalGameReference.ts   # Source
-├── index.html               # Entry point (loads from ./dist/)
-├── tsconfig.json            # TS config
-├── package.json             # npm config
-└── package-lock.json        # Locked deps
+├── dist/                      # Compiled JS output (gitignored)
+├── node_modules/              # Dependencies (gitignored)
+├── context/                   # Documentation
+│   ├── Context.md             # Project overview
+│   ├── FSM_Design.md          # FSM design decisions
+│   ├── IMPLEMENTATION_SUMMARY.md  # Implementation details
+│   └── TS_Migration.md        # This file
+├── RoboPlayer/                # (reserved for future use)
+├── FSM.ts                     # Generic state machine framework
+├── NetworkInterface.ts        # Bridge interfaces
+├── ComponentIntegration.ts    # Bridge setup and wiring
+├── GameEngineFSM.ts           # Game logic FSM
+├── GameRenderer.ts            # Phaser rendering scene
+├── GlobalGameReference.ts     # Shared types and events
+├── index.html                 # Entry point (loads from ./dist/)
+├── tsconfig.json              # TypeScript configuration
+├── package.json               # npm configuration
+└── package-lock.json          # Locked dependencies
 ```

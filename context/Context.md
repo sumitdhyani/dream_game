@@ -3,24 +3,25 @@
 ## Project Overview
 A **grid-based multiplayer game** where players move toward a target coordinate. At the end of each round, the farthest player from the target is eliminated. The game continues until only 1 player remains (the winner).
 
-**Current State:** Client-side simulation with 3-4 players (p1=self, p2-p4=bots). Wormhole teleportation system in development.
+**Current State:** Client-side simulation with decoupled architecture. GameRenderer and GameEngineFSM communicate via Network Interface bridge, enabling future swap to real networking.
 
 ---
 
 ## Game Mechanics
 
 ### Round Flow
-1. **PlayingRound** → Players move toward the target for 15 seconds
-2. **RoundEnded** → Farthest player(s) eliminated, prepare next round
-3. **GameOver** → 1 player remains, show winner
+1. **PreStart** → Game starts, waits for configuration from client
+2. **PlayingRound** → Players move toward the target (configurable duration, default 10s)
+3. **RoundEnded** → Farthest player(s) eliminated, prepare next round
+4. **GameOver** → 1 player remains, show winner
 
 ### Target Assignment
-- **New round starts:** Random target generated OR eliminated player's position becomes target
+- **New round starts:** Random target generated via `targetGenerator()`
 - **Self reaches target:** Target glows + blinks in self's color
 - **Self leaves target:** Target reverts to original red color
 
 ### Wormholes
-- 3-4 wormhole pairs per round
+- 3 wormhole pairs per round
 - One-way teleportation (entrance → exit)
 - Color-coded (cyan, green, magenta, yellow)
 - Visible at round start for strategic planning
@@ -29,26 +30,36 @@ A **grid-based multiplayer game** where players move toward a target coordinate.
 
 ## Architecture
 
-### Core Classes
+### Core Components
 
-**FSM.js** - Generic state machine framework
-- `State` - Base class for states
-- `FSM` - State machine engine with deferral queue
-- `CompositeState` - Hierarchical state support
+**FSM.ts** - Generic state machine framework
+- `State<TEventData, TResumePayload>` - Base class for states
+- `FSM<TEventData, TResumePayload>` - State machine engine with deferral queue
+- `SubState<TEventData, TReturnPayload>` - Lightweight child state pattern
 
-**GameEngineFSM.js** - Game logic state machine
+**NetworkInterface.ts** - Bridge between Client and Server sides
+- `ClientSideNWInterface` - Used by GameRenderer for GUI events
+- `ServerSideNWInterface` - Used by GameEngineFSM for game events
+- `Logger` - Logging interface for debugging
+
+**ComponentIntegration.ts** - Wiring and bridge setup
+- `setupBridge(gameRenderer)` - Instantiates and wires all interfaces
+- Creates bidirectional event flow between renderer and FSM
+
+**GameEngineFSM.ts** - Game logic state machine
 - `PreStart` → `PlayingRound` → `RoundEnded` → `GameOver`
-- Inherits from `FSM`
-- States manage: player movement, timer, bot AI, elimination logic
+- Uses `GUIEventPayload` for input events
+- Emits `GameEventPayload` for game state changes
 
-**GameRenderer.js** - Phaser-based rendering
-- Renders grid, players, target, countdown timer
-- Handles keyboard input → sends `key_press` events to FSM
-- Listens to game events (ROUND_START, PLAYER_POSITIONS_UPDATE, etc.)
+**GameRenderer.ts** - Phaser-based rendering
+- Renders grid, players, target, countdown timer, wormholes
+- Sends GUI events via `ClientSideNWInterface`
+- Receives game events and queues for processing in update loop
 
-**GlobalGameReference.js** - Shared types & constants
-- `Player`, `Position`, event classes (`Evt_RoundStart`, etc.)
-- Constants: `GRID_W=20`, `GRID_H=20`, `CELL=32px`
+**GlobalGameReference.ts** - Shared types & constants
+- `Player`, `BotPlayer`, `Position`, `Wormhole`, `GameConfig`
+- Event classes: `Evt_RoundStart`, `Evt_PlayerPositionsUpdate`, etc.
+- Constants: `GRID_W=40`, `GRID_H=40`, `CELL=32px`
 
 ---
 
@@ -57,7 +68,7 @@ A **grid-based multiplayer game** where players move toward a target coordinate.
 ### Design: Unified Throttle for All Players
 
 **Mechanism:**
-- All players (self + bots) share same `moveDelay` throttle
+- All players (self + bots) share same `moveDelay` throttle (configured via `GameConfig.playerSpeed`)
 - Each player tracked in `lastMoveTimes` dict by `player.id`
 - Timer check: `Date.now() - lastMoveTimes[id] < moveDelay` → skip move
 
@@ -67,7 +78,7 @@ A **grid-based multiplayer game** where players move toward a target coordinate.
 3. Update lastMoveTime
 
 **Bots (moveBot):**
-1. Timer fires every 100ms
+1. Timer fires periodically
 2. Check throttle → if throttle OK, proceed; else return
 3. Move 1 cell (90% optimal toward target, 10% random)
 4. Emit PLAYER_POSITIONS_UPDATE
@@ -76,26 +87,69 @@ A **grid-based multiplayer game** where players move toward a target coordinate.
 
 ---
 
-## Data Flow
+## Data Flow (Bridge Architecture)
 
-### Keyboard Input → Movement
+### GUI Event Flow (User Input → FSM)
 ```
 User Input (Keyboard)
     ↓
-GameRenderer.on_key_press()
+GameRenderer.propagateGuiEvt(GuiEventType.key_press, keyboardKey)
+    ↓
+ClientSideNWInterface.onGuiEvent()
+    ↓
+ClientSideNWInterface.propagateGuiEvt() ──BRIDGE──▶ ServerSideNWInterface.onGuiEvent()
+    ↓
+ServerSideNWInterface.propagateGuiEvt()
     ↓
 GameEngineFSM.handleEvent("key_press", key)
     ↓
-PlayingRound.on_key_press(key)
-    ↓ (updates self.position + bot positions)
+PlayingRound.on_key_press(key) → updates player positions
+```
+
+### Game Event Flow (FSM → Renderer)
+```
+PlayingRound state change
     ↓
-gameEvtHandler(Events.PLAYER_POSITIONS_UPDATE, ...)
+propagateGameEvt(logger, gameEvtHandler, Events.PLAYER_POSITIONS_UPDATE, ...)
     ↓
-GameRenderer.onGameEvt()
+ServerSideNWInterface.onGameEvt()
+    ↓
+ServerSideNWInterface.propagateGameEvt() ──BRIDGE──▶ ClientSideNWInterface.onGameEvt()
+    ↓
+ClientSideNWInterface.propagateGameEvt()
+    ↓
+GameRenderer.onGameEvt() → queues event
     ↓
 GameRenderer.update() → processPendingEvents()
     ↓
 renderPlayers(players) → Phaser rectangles update
+```
+
+### Bridge Diagram
+```
+[GameRenderer] <-> [ClientSideNWInterface] <==BRIDGE==> [ServerSideNWInterface] <-> [GameEngineFSM]
+
+GUI Events:  GameRenderer ──────▶ ClientNW ──────▶ ServerNW ──────▶ GameEngineFSM
+Game Events: GameRenderer ◀────── ClientNW ◀────── ServerNW ◀────── GameEngineFSM
+```
+
+### Game Configuration Flow
+```
+GameRenderer receives GAME_START event
+    ↓
+handleGameStart() creates GameConfig
+    ↓
+GameConfig = {
+    botPlayers: [Bot1, Bot2, Bot3],
+    roundDuration_ms: 10000,
+    playerSpeed: 100  // moveDelay in ms
+}
+    ↓
+propagateGuiEvt(GuiEventType.game_configured, gameConfig)
+    ↓
+PreStart.on_game_configured(gameConfig)
+    ↓
+Creates players (bots + self), transitions to PlayingRound
 ```
 
 ### Round End → Next Round
@@ -106,12 +160,12 @@ GameEngineFSM.handleEvent("round_end")
     ↓
 RoundEnded.on_launch() → eliminates farthest player
     ↓
-gameEvtHandler(Events.ROUND_END, roundSummary)
+propagateGameEvt(Events.ROUND_END, roundSummary)
     ↓
 GameRenderer.handleRoundEnd(evt_round_end)
     ↓ (shows round summary for 2 seconds)
     ↓
-GameEngineFSM.handleEvent("ready_to_host")  ← Renderer triggers this
+propagateGuiEvt(GuiEventType.ready_to_host)
     ↓
 RoundEnded.on_ready_to_host() → new PlayingRound state
     ↓
@@ -122,63 +176,80 @@ Next round begins
 
 ## Key Methods
 
-### PlayingRound
+### PreStart
+- `onEntry()` - Emits GAME_START event to signal renderer
+- `on_game_configured(gameConfig)` - Receives client config, creates players, transitions to PlayingRound
 
+### PlayingRound
 - `on_key_press(key)` - Self player movement with throttle
 - `moveBot(botPlayer, target)` - Bot AI: 90% optimal, 10% random
 - `on_round_end()` - Transition to RoundEnded state
+- `checkWormholeTeleport()` - Detects wormhole entrance, transitions to TeleportingSubState
+
+### TeleportingSubState
+- `onEntry()` - Teleports player, emits PLAYER_TELEPORTED, starts animation timer
+- `on_key_press()` - Returns deferralTransition to queue input during animation
+- `on_teleport_complete()` - Returns to parent PlayingRound
 
 ### RoundEnded
-
 - `findFarthestPlayerIdxs()` - Returns list of indices of players farthest from target
 - `findLoserIdx()` - Returns first farthest player (picks randomly if tied)
 - `eliminateLoser()` - Marks player as not alive, removes from activePlayers
+- `on_ready_to_host()` - Transitions to next PlayingRound
 
 ---
 
-## TODO / Not Yet Implemented
+## Event Types
 
-1. **Target Reaching Detection**
-   - Check if any player reached target (distance ≤ 1?)
-   - If all reach → trigger new round with new target
-   - If some reach, some don't → run normal elimination
+### GUI Events (Client → Server)
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `key_press` | `KeyboardKey` | Arrow key pressed |
+| `game_configured` | `GameConfig` | Client sends game configuration |
+| `ready_to_host` | none | Renderer ready for next round |
 
-2. **Eliminated Player Position as Next Target**
-   - RoundEnded.on_launch() should set next target = eliminated player's position
-   - Currently: target is randomly generated each round
-
-3. **Server/Multiplayer**
-   - Currently all client-side simulation
-   - Need backend for authoritative state, real players
-
----
-
-## Minor Corrections
-
-- Rename event name `ready_to_host` → `ready_to_render` (more semantically accurate: renderer is ready to render next round)
-
----
-
-## Known Issues / Design Notes
-
-- `self.moveDelay` referenced in PlayingRound but not always set (check initialization)
-- GameRenderer creates 4 players but only 3 unique in array
-- Console spam from render updates (can clean up later)
+### Game Events (Server → Client)
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `GAME_START` | none | Signal to show config UI |
+| `ROUND_START` | `Evt_RoundStart` | Round begins, includes players/target/wormholes |
+| `ROUND_END` | `Evt_RoundEnd` | Round ends with summary |
+| `PLAYER_POSITIONS_UPDATE` | `Evt_PlayerPositionsUpdate` | Player positions changed |
+| `TIMER_TICK` | `Evt_TimerTick` | Countdown update |
+| `SELF_REACHED_TARGET` | `Evt_SelfReachedTarget` | Self player at target |
+| `SELF_LEFT_TARGET` | `Evt_SelfLeftTarget` | Self player left target |
+| `PLAYER_TELEPORTED` | `Evt_PlayerTeleported` | Player used wormhole |
+| `GAME_OVER` | `Evt_GameOver` | Game finished, winner declared |
 
 ---
 
 ## Configuration
 
-**In GameRenderer.js (create method):**
-```javascript
-new GameEngineFSM(
-  this.onGameEvt.bind(this),
-  players,
-  players[0],        // self player
-  targetGenerator,   // () => Position
-  logger,
-  100                // moveDelay in milliseconds
+**GameConfig (sent by GameRenderer on GAME_START):**
+```typescript
+new GameConfig(
+    [new BotPlayer("bot1", "Bot 1", new Position(0, 0), 0x00ff00, 1),
+     new BotPlayer("bot2", "Bot 2", new Position(0, 0), 0x00aaff, 2),
+     new BotPlayer("bot3", "Bot 3", new Position(0, 0), 0xffaa00, 3)],
+    10000,  // roundDuration_ms
+    100     // playerSpeed (moveDelay in ms)
 )
 ```
 
-Adjust `100` to tune player/bot movement speed.
+---
+
+## Known Issues / Design Notes
+
+- Grid size is 40x40 (not 20x20 as previously documented)
+- Console spam from render updates (can clean up later)
+- Self player is always created with id "self_id" and name "You", color red (0xff0000)
+
+---
+
+## Future Networking
+
+The Bridge architecture is designed for easy swap to real networking:
+1. Replace `ClientSideNWInterface.propagateGuiEvt` wiring with WebSocket send
+2. Replace `ServerSideNWInterface.propagateGameEvt` wiring with WebSocket receive
+3. All event types and payloads remain the same
+4. GameRenderer and GameEngineFSM code unchanged

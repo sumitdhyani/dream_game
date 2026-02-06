@@ -1,19 +1,21 @@
 # FSM Refactor & SubState Design
 
-This document records the design discussion and final decisions for refactoring the game's FSM to support a simpler and safer SubState concept alongside the existing CompositeState pattern. It explains goals, semantics, lifecycle ordering, event routing, API sketches, implementation notes, and testing guidance.
+This document records the design discussion and final decisions for refactoring the game's FSM to support a simpler and safer SubState concept. It explains goals, semantics, lifecycle ordering, event routing, API sketches, implementation notes, and testing guidance.
 
 **Purpose**
-- Capture the rationale for replacing certain CompositeState uses with a lightweight `SubState` abstraction.
+- Capture the rationale for using a lightweight `SubState` abstraction for short-lived child behaviors.
 - Define deterministic and easy-to-reason-about semantics for substate lifecycle, event routing, and parent authority.
+
+**Status: ✅ FULLY IMPLEMENTED**
 
 ---
 
 ## 1. Background & Goals
 
-- Problem: `CompositeState` is powerful but sometimes over-engineered for short-lived child behaviors (e.g., teleport animation). It mixes state and internal FSM behavior which increases complexity.
-- Goal: Provide a simpler `SubState` abstraction for short-lived, specialist child behavior that always returns control to its parent by default, while keeping `CompositeState` for complex nested FSMs.
+- Problem: Complex nested states add unnecessary overhead for short-lived child behaviors (e.g., teleport animation).
+- Solution: A simple `SubState` abstraction for short-lived, specialist child behavior that always returns control to its parent.
 - Key requirements:
-  - Substates should be small, specialist units of behavior (e.g., `Teleporting`).
+  - Substates should be small, specialist units of behavior (e.g., `TeleportingSubState`).
   - Parent states remain authoritative for coarse decisions (round-end, game-over).
   - Event flow and lifecycle ordering must be deterministic and easy to test.
   - Support optional event deferral during substate activity.
@@ -142,97 +144,64 @@ exitStateChain(state) {
 
 ---
 
-## 6. Backwards Compatibility & CompositeState
+## 6. Backwards Compatibility
 
-- Keep `CompositeState` for cases that need a full nested FSM; `SubState` is the lighter-weight option for short-lived tasks.
-- Existing `Teleporting` (if implemented as a CompositeState) should be refactored into a `SubState` for simplicity, unless the behavior requires an internal FSM.
+- CompositeState has been removed from the codebase.
+- SubState is the lightweight option for short-lived tasks like teleportation animation.
+- `TeleportingSubState` uses the SubState pattern with event deferral for input during animation.
 
 ---
 
-## 7. Implementation Plan (Three Phases)
+## 7. Implementation Status
 
-**Phase 1: Extend FSM.js** ✅ COMPLETE
+**All Phases Complete ✅**
+
+**Phase 1: Extend FSM.ts** ✅ COMPLETE
 - Added `SpecialTransition.ReturnToParent` constant
 - Added `activeSubState` property to `State` class (default `null`)
 - Added `onResumeFromSubstate(payload)` hook to `State` class
 - Added `SubState` class extending `State` with `parent` property
-- Status: All changes committed
 
-**Phase 2: SubState Lifecycle & Event Bubbling** (PENDING)
+**Phase 2: SubState Lifecycle & Event Bubbling** ✅ COMPLETE
+- Added `onPreemption()` hook to State class
+- Added `getReturnPayload()` method to SubState class
+- SubState `react()` override for event bubbling to parent
+- Added `exitStateChain(state)` helper method to FSM
+- FSM.processSingleEvent() handles SubState transitions correctly
 
-Changes to implement:
+**Phase 3: Refactor GameEngineFSM.ts** ✅ COMPLETE
+- `PlayingRound` is a regular `State` (not CompositeState)
+- `TeleportingSubState` extends `SubState`
+- PlayingRound transitions to TeleportingSubState on wormhole detection
+- PlayingRound.onResumeFromSubstate() handles teleport completion
 
-1. **State class: Add `onPreemption()` hook**
-   - Empty default implementation
-   - Called when parent yields control to SubState
-
-2. **SubState class: Add `getReturnPayload()` method**
-   - Default returns `undefined`
-   - Separated from `beforeExit()` for single-responsibility
-
-3. **SubState class: Override `react()` for event bubbling**
-   - Try `super.react(evtName, evtData)`
-   - Catch `UnhandledEvtException` → bubble to `this.parent.react(evtName, evtData)`
-   - Return result from whichever handles it
-
-4. **FSM: Add `exitStateChain(state)` helper method**
-   - Walk up parent chain calling `beforeExit()` on each
-   - Ensures child-before-parent cleanup order
-
-5. **FSM.processSingleEvent(): Handle SubState transitions**
-   - Detect `transition instanceof SubState`:
-     - Call `currState.onPreemption()`
-     - Set `currState = transition`
-     - Call `handleStateEntry(currState)`
-   - Detect `transition === SpecialTransition.ReturnToParent`:
-     - `payload = currState.getReturnPayload()`
-     - `currState.beforeExit()`
-     - `currState = currState.parent`
-     - `currState.onResumeFromSubstate(payload)`
-     - Process deferral queue
-   - Detect regular `transition instanceof State` (not SubState):
-     - Call `this.exitStateChain(currState)`
-     - Set `currState = transition`
-     - Call `handleStateEntry(currState)`
-
-- Status: Design approved, implementation pending
-
-**Phase 3: Refactor GameEngineFSM.js** (PENDING)
-- Convert `PlayingRound` from `CompositeState` to regular `State`
-- Refactor `Teleporting` → `TeleportingSubState` (extends `SubState`)
-- Update `PlayingRound`:
-  - On wormhole detection, return `new TeleportingSubState(this)`
-  - Implement `onResumeFromSubstate(payload)` to handle teleport completion
-- Update imports (remove `CompositeState`, add `SubState`)
-- Status: Awaiting Phase 2 completion
-
-**Phase 4: Remove CompositeState** (PENDING)
-- Remove `CompositeState` class from FSM.js
-- Update documentation (Context.md, IMPLEMENTATION_SUMMARY.md)
-- Status: Awaiting Phase 3 completion (no more usages)
+**Phase 4: Remove CompositeState** ✅ COMPLETE
+- CompositeState class removed from FSM.ts
+- All documentation updated
 
 ---
 
 ## 8. Testing Checklist
 
-**Phase 1 & 2 (FSM infrastructure):**
+**Phase 1 & 2 (FSM infrastructure):** ✅ All Complete
 - ✅ `SubState` class exists and extends `State`
 - ✅ `SpecialTransition.ReturnToParent` is defined
 - ✅ State has `activeSubState` property
 - ✅ State has `onResumeFromSubstate()` hook
-- `State.react()` routes to active substate (Phase 2)
-- Unhandled events bubble from substate to parent (Phase 2)
-- `ReturnToParent` trigger calls `onResumeFromSubstate()` with payload (Phase 2)
+- ✅ State has `onPreemption()` hook
+- ✅ State.react() routes to active substate
+- ✅ Unhandled events bubble from substate to parent
+- ✅ `ReturnToParent` trigger calls `onResumeFromSubstate()` with payload
 
-**Phase 3 (Teleporting integration):**
-- `TeleportingSubState` activates when wormhole is detected
-- Input deferred during teleport animation (key presses return `deferralTransition`)
-- Teleport animation completes (600ms timer)
-- Substate returns `ReturnToParent`
-- Parent `PlayingRound.onResumeFromSubstate()` is called
-- Deferred input is replayed and processed
-- Round transitions (round_end) still work correctly
-- `PLAYER_TELEPORTED` event is emitted to renderer
+**Phase 3 (Teleporting integration):** ✅ All Complete
+- ✅ `TeleportingSubState` activates when wormhole is detected
+- ✅ Input deferred during teleport animation (key presses return `deferralTransition`)
+- ✅ Teleport animation completes (600ms timer)
+- ✅ Substate returns `ReturnToParent`
+- ✅ Parent `PlayingRound.onResumeFromSubstate()` is called
+- ✅ Deferred input is replayed and processed
+- ✅ Round transitions (round_end) still work correctly
+- ✅ `PLAYER_TELEPORTED` event is emitted to renderer
 
 ---
 
@@ -263,19 +232,24 @@ A: Decided: in `State.react()`. Why:
 
 ---
 
-## 10. Next Steps
+## 10. Current Architecture
 
-**Phase 2 (Ready to implement):**
-- Update `State.react()` to handle substate routing, bubbling, and `ReturnToParent`
-- No FSM changes required
-- Request user approval before implementation
+**FSM Framework (FSM.ts):**
+- Generic `State<TEventData, TResumePayload>` class
+- Generic `SubState<TEventData, TReturnPayload>` class
+- Generic `FSM<TEventData, TResumePayload>` class
+- Logger interface with `info`, `warn`, `error`, `debug` methods
 
-**Phase 3 (After Phase 2):**
-- Refactor `Teleporting` in `GameEngineFSM.js` to `TeleportingSubState`
-- Update `PlayingRound` to activate/resume with substates
-- Run integration tests with teleportation flow
+**GameEngineFSM States:**
+- `PreStart` - Waits for game configuration from client
+- `PlayingRound` - Main gameplay with movement, bots, wormholes
+- `TeleportingSubState` - Animation phase during wormhole teleportation
+- `RoundEnded` - Elimination phase, prepares next round
+- `GameOver` - Final state, shows winner
 
----
+**Event Types:**
+- `GUIEventPayload` - Input events from client (KeyboardKey | GameConfig)
+- `GameEventPayload` - Game state events to client
 
-Document updated with Phase 1 completion status and refined Phase 2/3 design based on discussion.
+Document updated to reflect full implementation completion.
 Refer to the `context` folder for canonical conversation artifacts and the implementation summary.
