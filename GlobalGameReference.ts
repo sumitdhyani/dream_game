@@ -28,20 +28,22 @@ export enum GuiEventType  {
 }
 
 export const keyboardKeys = {
-    UP: 0,
-    DOWN: 1,
-    LEFT: 2,
-    RIGHT: 3
+    UP: 1,
+    DOWN: 2,
+    LEFT: 3,
+    RIGHT: 4
 } as const
 
 // GUI event payloads
 export type KeyboardKey = typeof keyboardKeys[keyof typeof keyboardKeys]
 export class GameConfig {
     botPlayers: BotPlayer[]
-    roundDuration: number
-    constructor(botPlayers: BotPlayer[], roundDuration: number) {
+    roundDuration_ms: number
+    playerSpeed: number
+    constructor(botPlayers: BotPlayer[], roundDuration_ms: number, playerSpeed: number) {
         this.botPlayers = botPlayers
-        this.roundDuration = roundDuration
+        this.roundDuration_ms = roundDuration_ms
+        this.playerSpeed = playerSpeed
     }
 }
 // ============================================================================
@@ -236,6 +238,6 @@ export type GameEventPayload =
     | KeyboardKey
 
 
-export type GUIEventPayload = KeyboardKey
-export type GameEvtHandler = (event: EventType, payload: GameEventPayload) => void
+export type GUIEventPayload = KeyboardKey | GameConfig
+export type GameEvtHandler = (event: EventType, payload?: GameEventPayload) => void
 export type TargetGenerator = () => Position

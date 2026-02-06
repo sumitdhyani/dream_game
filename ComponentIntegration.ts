@@ -48,12 +48,8 @@
 
 import { ClientSideNWInterface,
          ServerSideNWInterface,
-         FGameEvtListener,
-         FGameEventRegistrationListener,
-         FGuiEventListener,
-         FGuiEventRegistrationListener,
          Logger} from "./NetworkInterface.js";
-import { EventType, GameEventPayload, GameEvtHandler, GRID_H, GRID_W, KeyboardKey, Player, Position } from "./GlobalGameReference.js";
+import { GRID_H, GRID_W, Player, Position } from "./GlobalGameReference.js";
 import { use } from "matter";
 import { GameEngineFSM } from "./GameEngineFSM.js";
 import { Game } from "phaser";
@@ -80,30 +76,18 @@ export function setupBridge(gameRenderer: GameRenderer) {
 
   clientNW.propagateGuiEvt = serverNW.onGuiEvent.bind(serverNW);
   serverNW.propagateGameEvt = clientNW.onGameEvt.bind(clientNW);
-
-  
-
-
-  const players = [
-    new Player("1", "p1", new Position(1, 1), 0x00ff00),
-    new Player("2", "p2", new Position(18, 2), 0x00aaff),
-    new Player("3", "p3", new Position(5, 17), 0xffaa00),
-    new Player("4", "p4", new Position(5, 17), 0xffffff)
-  ]
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
-    players,
-    players[0],
     () => {
       return new Position(Math.floor(Math.random() * GRID_W),
         Math.floor(Math.random() * GRID_H))
     },
-    logger,
-    100)
+    logger)
 
   serverNW.propagateGuiEvt = gameEngineFSM.handleEvent.bind(gameEngineFSM);
   gameEngineFSM.start()
 }
+
 // Usage:
 // - GameRenderer uses clientNW and registers a handler with clientNW.registerGameEventHandler
 // - GameEngineFSM uses serverNW and registers a handler with serverNW.registerGameEventHandler

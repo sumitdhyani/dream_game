@@ -22,7 +22,11 @@ import {
     GameEventPayload,
     TargetGenerator,
     KeyboardKey,
-    EventType
+    EventType,
+    GameConfig,
+    BotPlayer,
+    GuiEventType,
+    GUIEventPayload
 } from "./GlobalGameReference.js"
 
 // ============================================================================
@@ -30,34 +34,23 @@ import {
 // ============================================================================
 
 /** Union of all game event payload types */
-export type GameEvent = GameEventPayload | null
+export type GameEvent = GameEventPayload
 
-function propagateGameEvt(logger: Logger, gameEvtHandler: GameEvtHandler | null, type: EventType, evtData: GameEventPayload) : void {
-    if (!gameEvtHandler) {
-        logger.warn("No game event handler registered to receive game events in GameEngineFSM")
-        return
-    }
-
+function propagateGameEvt(logger: Logger, gameEvtHandler: GameEvtHandler, type: EventType, evtData?: GameEventPayload) : void {
     gameEvtHandler(type, evtData)
 }
 
-export class GameEngineFSM extends FSM<GameEvent, null | undefined> {
+export class GameEngineFSM extends FSM<GUIEventPayload, undefined> {
     constructor(
         gameEvtHandler: GameEvtHandler,
-        players: Player[],
-        self: Player,
         targetGenerator: TargetGenerator,
-        logger: Logger,
-        moveDelay: number
+        logger: Logger
     ) {
         const initState = new PreStart(
             gameEvtHandler,
-            players,
-            self,
             targetGenerator,
             null!,  // Will be set after super()
-            logger,
-            moveDelay,
+            logger
         )
         super(() => initState, logger)
 
@@ -73,61 +66,50 @@ export class GameEngineFSM extends FSM<GameEvent, null | undefined> {
 // PreStart State
 // ============================================================================
 
-class PreStart extends State<GameEvent, null> {
-    private readonly gameEvtHandler: GameEvtHandler | null
-    private readonly players: Player[]
-    private readonly activePlayers: Player[]
-    private readonly eliminatedPlayers: Player[]
-    private readonly self: Player
+class PreStart extends State<GUIEventPayload, undefined> {
+    private readonly gameEvtHandler: GameEvtHandler
     private readonly targetGenerator: TargetGenerator
     private readonly logger: Logger
-    private readonly moveDelay: number
     selfFsm!: GameEngineFSM
 
     constructor(
         gameEvtHandler: GameEvtHandler,
-        players: Player[],
-        self: Player,
         targetGenerator: TargetGenerator,
         selfFsm: GameEngineFSM,
-        logger: Logger,
-        moveDelay: number
+        logger: Logger
     ) {
         super()
         this.gameEvtHandler = gameEvtHandler
-        this.players = players
-        this.activePlayers = Array.from(players)
-        this.eliminatedPlayers = []
-        this.self = self
         this.targetGenerator = targetGenerator
         this.selfFsm = selfFsm
         this.logger = logger
-        this.moveDelay = moveDelay
     }
 
     onEntry(): void {
-        setTimeout(() => {
-            propagateGameEvt(this.logger, this.gameEvtHandler, Events.GAME_START, new Evt_GameStart(
-                0, // timeToRoundEnd - not used in Evt_GameStart
-                this.activePlayers
-            ))
-        }, 0)
+        propagateGameEvt(this.logger, this.gameEvtHandler, Events.GAME_START);
     }
 
-    on_ready_to_host(): PlayingRound {
+    on_game_configured(gameConfig: GameConfig): PlayingRound {
+        const allPlayers: Player[] = gameConfig.botPlayers
+        const self: Player = new Player("self_id", "You", new Position(0, 0), 0xff0000)
+        allPlayers.push(self)
+        const activePlayers = Array.from<Player>(allPlayers)
+        const eliminatedPlayers: Player[] = []
+
         return new PlayingRound(
             this.gameEvtHandler,
-            this.players,
-            this.activePlayers,
-            this.eliminatedPlayers,
-            this.self,
+            allPlayers,
+            activePlayers,
+            eliminatedPlayers,
+            self,
             this.targetGenerator,
-            10000,
+            gameConfig.roundDuration_ms,
             this.selfFsm,
             1,
-            this.moveDelay,
+            gameConfig.playerSpeed,
             this.targetGenerator(),
             this.logger)
+
     }
 }
 
@@ -140,8 +122,8 @@ class PreStart extends State<GameEvent, null> {
  * Handles normal gameplay events directly (on_key_press, on_round_end)
  * Transitions to TeleportingSubState when wormhole is used
  */
-class PlayingRound extends State<GameEvent, undefined> {
-    private gameEvtHandler: GameEvtHandler | null
+class PlayingRound extends State<GUIEventPayload, undefined> {
+    private gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
     private readonly eliminatedPlayers: Player[]
@@ -161,7 +143,7 @@ class PlayingRound extends State<GameEvent, undefined> {
     private readonly logger: Logger
 
     constructor(
-        gameEvtHandler: GameEvtHandler | null,
+        gameEvtHandler: GameEvtHandler,
         players: Player[],
         activePlayers: Player[],
         eliminatedPlayers: Player[],
@@ -425,19 +407,19 @@ class PlayingRound extends State<GameEvent, undefined> {
 // TeleportingSubState
 // ============================================================================
 
-class TeleportingSubState extends SubState<GameEvent, undefined> {
+class TeleportingSubState extends SubState<GUIEventPayload, undefined> {
     private readonly fsm: GameEngineFSM
     private readonly player: Player
     private readonly wormhole: Wormhole
-    private readonly gameEvtHandler: GameEvtHandler | null
+    private readonly gameEvtHandler: GameEvtHandler
     private timerId: ReturnType<typeof setTimeout> | null
-
+    
     constructor(
-        parent: State<GameEvent, undefined>,
+        parent: State<GUIEventPayload, undefined>,
         fsm: GameEngineFSM,
         player: Player,
         wormhole: Wormhole,
-        gameEvtHandler: GameEvtHandler | null
+        gameEvtHandler: GameEvtHandler
     ) {
         super(parent)
         this.fsm = fsm
@@ -481,8 +463,8 @@ class TeleportingSubState extends SubState<GameEvent, undefined> {
 // RoundEnded State
 // ============================================================================
 
-class RoundEnded extends State<GameEvent, null> {
-    private readonly gameEvtHandler: GameEvtHandler | null
+class RoundEnded extends State<GUIEventPayload, undefined> {
+    private readonly gameEvtHandler: GameEvtHandler
     private readonly players: Player[]
     private readonly activePlayers: Player[]
     private readonly self: Player
@@ -497,7 +479,7 @@ class RoundEnded extends State<GameEvent, null> {
     private loserPosition: Position | null
 
     constructor(
-        gameEvtHandler: GameEvtHandler | null,
+        gameEvtHandler: GameEvtHandler,
         players: Player[],
         activePlayers: Player[],
         self: Player,
@@ -584,6 +566,7 @@ class RoundEnded extends State<GameEvent, null> {
 
         const roundSummary = new RoundSummary(this.roundNo, eliminatedPlayer)
         propagateGameEvt(this.logger, this.gameEvtHandler, Events.ROUND_END, new Evt_RoundEnd(roundSummary))
+        return
     }
 
     on_ready_to_host(): PlayingRound {
@@ -609,15 +592,15 @@ class RoundEnded extends State<GameEvent, null> {
 // GameOver State
 // ============================================================================
 
-class GameOver extends State<GameEvent, null> {
-    private readonly gameEvtHandler: GameEvtHandler | null
+class GameOver extends State<GUIEventPayload, undefined> {
+    private readonly gameEvtHandler: GameEvtHandler
     private readonly roundNo: number
     private readonly players: Player[]
     private readonly winner_player: Player
     private readonly logger: Logger
 
     constructor(
-        gameEvtHandler: GameEvtHandler | null,
+        gameEvtHandler: GameEvtHandler,
         roundNo: number,
         players: Player[],
         winner_player: Player,

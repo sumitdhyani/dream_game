@@ -42,7 +42,7 @@ export class GameRenderer extends Phaser.Scene {
     private targetPulseTween: Phaser.Tweens.Tween | null
     private wormholeGraphics: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics)[]
     private pendingEvents: PendingEvent[]
-    guiEvtListener : ((evtType: string, evtData?: GUIEventPayload) => void) | null
+    guiEvtListener : FGuiEventListener | null
 
     constructor() {
         super("game")
@@ -68,7 +68,6 @@ export class GameRenderer extends Phaser.Scene {
     }
 
     create(): void {
-        this.pendingEvents = []
         this.drawGrid()
 
         this.input.keyboard!.on("keydown-LEFT", () => {
@@ -197,11 +196,18 @@ export class GameRenderer extends Phaser.Scene {
 
     private handleGameStart(): void {
         console.log("Game started")
-        this.propagateGuiEvt(GuiEventType.ready_to_host)
+        const gameConfig: GameConfig = new GameConfig(
+            [new BotPlayer("bot1", "Bot 1", new Position(0, 0), 0x00ff00, 1),
+             new BotPlayer("bot2", "Bot 2", new Position(0, 0), 0x00aaff, 2),
+             new BotPlayer("bot3", "Bot 3", new Position(0, 0), 0xffaa00, 3)],
+            10000, // round duration in ms
+            100
+        )
+        this.propagateGuiEvt(GuiEventType.game_configured, gameConfig)
     }
 
     private handlePlayerPositionsUpdate(evt_player_positions_update: Evt_PlayerPositionsUpdate): void {
-        console.log(`handlePlayerPositionsUpdate`)
+        //console.log(`handlePlayerPositionsUpdate`)
         this.renderPlayers(evt_player_positions_update.players)
     }
 
@@ -240,6 +246,7 @@ export class GameRenderer extends Phaser.Scene {
     }
 
     private processGameEvt(evt: EventType, evtData?: GameEventPayload): void {
+        //console.log(`Processing game event: ${evt}, data: ${JSON.stringify(evtData)}`)
         switch (evt) {
             case Events.GAME_START:
                 this.handleGameStart()

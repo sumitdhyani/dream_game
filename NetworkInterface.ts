@@ -18,9 +18,6 @@ export type FGameEvtPropagator = FGameEvtListener;
 export type FGuiEventListener = (evtType: string, event?: GUIEventPayload) => void;
 export type FGuiEvtPropagator = FGuiEventListener;
 
-export type FGameEventRegistrationListener = (listener: FGameEvtListener) => void;
-export type FGuiEventRegistrationListener = (listener: FGuiEventListener) => void;
-
 // Client-side network interface (used by GameRenderer)
 export class ClientSideNWInterface {
   propagateGameEvt: FGameEvtPropagator | null;
@@ -79,6 +76,7 @@ export class ServerSideNWInterface {
 
   // Called by network/server to deliver game events
   onGameEvt(type: EventType, event?: GameEventPayload) {
+    this.logger.debug(`ServerSideNWInterface received game event: ${type}, data: ${JSON.stringify(event)}`);
     if (!this.propagateGameEvt) {
       this.logger.warn("No game event handler registered to receive game events");
       return;
