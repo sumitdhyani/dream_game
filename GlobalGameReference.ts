@@ -21,6 +21,12 @@ export const Events = {
 
 export type EventType = typeof Events[keyof typeof Events]
 
+export enum GuiEventType  {
+    key_press = "key_press",
+    game_configured = "game_configured",
+    ready_to_host = "ready_to_host"
+}
+
 export const keyboardKeys = {
     UP: 0,
     DOWN: 1,
@@ -28,7 +34,16 @@ export const keyboardKeys = {
     RIGHT: 3
 } as const
 
+// GUI event payloads
 export type KeyboardKey = typeof keyboardKeys[keyof typeof keyboardKeys]
+export class GameConfig {
+    botPlayers: BotPlayer[]
+    roundDuration: number
+    constructor(botPlayers: BotPlayer[], roundDuration: number) {
+        this.botPlayers = botPlayers
+        this.roundDuration = roundDuration
+    }
+}
 // ============================================================================
 // Core Classes
 // ============================================================================
@@ -56,6 +71,14 @@ export class Player {
         this.position = position
         this.alive = true
         this.color = color
+    }
+}
+
+export class BotPlayer extends Player {
+    expertiseLevel: number
+    constructor(id: string, name: string, position: Position, color: number, expertiseLevel: number) {
+        super(id, name, position, color)
+        this.expertiseLevel = expertiseLevel
     }
 }
 
@@ -197,7 +220,7 @@ export class Evt_PlayerTeleported {
     }
 }
 // ============================================================================
-// Event Handler Type
+// Game Event payloads
 // ============================================================================
 
 export type GameEventPayload = 

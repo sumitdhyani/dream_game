@@ -1,5 +1,8 @@
-import { CELL, GRID_W, GRID_H, GUIEventPayload } from './GlobalGameReference.js'
-import {
+import { 
+    CELL, 
+    GRID_W,
+    GRID_H,
+    GUIEventPayload,
     Events,
     keyboardKeys,
     Evt_RoundEnd,
@@ -11,10 +14,13 @@ import {
     Evt_TimerTick,
     Evt_PlayerTeleported,
     Player,
+    BotPlayer,
     Position,
     Wormhole,
     EventType,
-    GameEventPayload
+    GameEventPayload,
+    GuiEventType,
+    GameConfig
 } from './GlobalGameReference.js'
 import { GameEngineFSM } from './GameEngineFSM.js'
 import { setupBridge } from './ComponentIntegration.js'
@@ -66,19 +72,19 @@ export class GameRenderer extends Phaser.Scene {
         this.drawGrid()
 
         this.input.keyboard!.on("keydown-LEFT", () => {
-            this.propagateGuiEvt("key_press", keyboardKeys.LEFT)
+            this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.LEFT)
         })
 
         this.input.keyboard!.on("keydown-RIGHT", () => {
-          this.propagateGuiEvt("key_press", keyboardKeys.RIGHT)
+          this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.RIGHT)
         })
 
         this.input.keyboard!.on("keydown-UP", () => {
-            this.propagateGuiEvt("key_press", keyboardKeys.UP)
+            this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.UP)
         })
 
         this.input.keyboard!.on("keydown-DOWN", () => {
-            this.propagateGuiEvt("key_press", keyboardKeys.DOWN)
+            this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.DOWN)
         })
 
         this.events.once("shutdown", () => {
@@ -142,7 +148,7 @@ export class GameRenderer extends Phaser.Scene {
 
         setTimeout(() => {
             roundSummaryTextElement.destroy()
-            this.propagateGuiEvt("ready_to_host")
+            this.propagateGuiEvt(GuiEventType.ready_to_host)
         }, 2000)
     }
 
@@ -191,7 +197,7 @@ export class GameRenderer extends Phaser.Scene {
 
     private handleGameStart(): void {
         console.log("Game started")
-        this.propagateGuiEvt("ready_to_host")
+        this.propagateGuiEvt(GuiEventType.ready_to_host)
     }
 
     private handlePlayerPositionsUpdate(evt_player_positions_update: Evt_PlayerPositionsUpdate): void {
