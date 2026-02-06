@@ -1,5 +1,5 @@
 import { Game } from "phaser";
-import { GameEventPayload, KeyboardKey, EventType } from "./GlobalGameReference.js";
+import { GameEventPayload, KeyboardKey, EventType, GUIEventPayload } from "./GlobalGameReference.js";
 
 // Define a type Logger that has 4 members: info, warn, error, debug,
 // all are functions that take a string message and return void
@@ -12,10 +12,10 @@ export type Logger = {
 
 // Type for user input events (from client to server)
 // Type for game events (from server to client)
-export type FGameEvtListener = (type: EventType, event: GameEventPayload) => void;
+export type FGameEvtListener = (type: EventType, event?: GameEventPayload) => void;
 export type FGameEvtPropagator = FGameEvtListener;
 
-export type FGuiEventListener = (evtType: string, event?: GameEventPayload | undefined) => void;
+export type FGuiEventListener = (evtType: string, event?: GUIEventPayload) => void;
 export type FGuiEvtPropagator = FGuiEventListener;
 
 export type FGameEventRegistrationListener = (listener: FGameEvtListener) => void;
@@ -34,7 +34,7 @@ export class ClientSideNWInterface {
     this.propagateGuiEvt = null;
   }
 
-  onGuiEvent(type: string, evtData?: GameEventPayload) {
+  onGuiEvent(type: string, evtData?: GUIEventPayload) {
     if (!this.propagateGuiEvt) {
       this.logger.warn("No game event handler registered to receive game events");
       return;
@@ -45,7 +45,7 @@ export class ClientSideNWInterface {
   }
 
   // Called by network/server to deliver game events
-  onGameEvt(type: EventType, event: GameEventPayload) {
+  onGameEvt(type: EventType, event?: GameEventPayload) {
     if (!this.propagateGameEvt) {
       this.logger.warn("No game event handler registered to receive game events");
       return;
@@ -69,7 +69,7 @@ export class ServerSideNWInterface {
   }
 
   // Called by GameRenderer to send user input
-  onGuiEvent(type: string, evtData?: GameEventPayload) {
+  onGuiEvent(type: string, evtData?: GUIEventPayload) {
     if (!this.propagateGuiEvt) {
       this.logger.warn("No user input handler registered to receive user input");
       return;
@@ -78,7 +78,7 @@ export class ServerSideNWInterface {
   }
 
   // Called by network/server to deliver game events
-  onGameEvt(type: EventType, event: GameEventPayload) {
+  onGameEvt(type: EventType, event?: GameEventPayload) {
     if (!this.propagateGameEvt) {
       this.logger.warn("No game event handler registered to receive game events");
       return;

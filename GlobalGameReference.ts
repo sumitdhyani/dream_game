@@ -196,7 +196,6 @@ export class Evt_PlayerTeleported {
         this.wormhole = wormhole
     }
 }
-
 // ============================================================================
 // Event Handler Type
 // ============================================================================
@@ -213,5 +212,7 @@ export type GameEventPayload =
     | Evt_PlayerTeleported
     | KeyboardKey
 
+
+export type GUIEventPayload = KeyboardKey
 export type GameEvtHandler = (event: EventType, payload: GameEventPayload) => void
 export type TargetGenerator = () => Position

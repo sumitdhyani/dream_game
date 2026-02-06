@@ -1,4 +1,4 @@
-import { CELL, GRID_W, GRID_H } from './GlobalGameReference.js'
+import { CELL, GRID_W, GRID_H, GUIEventPayload } from './GlobalGameReference.js'
 import {
     Events,
     keyboardKeys,
@@ -25,7 +25,7 @@ declare const Phaser: typeof import('phaser')
 
 interface PendingEvent {
     evt: EventType
-    evtData: GameEventPayload
+    evtData: GameEventPayload | undefined
 }
 
 export class GameRenderer extends Phaser.Scene {
@@ -36,7 +36,7 @@ export class GameRenderer extends Phaser.Scene {
     private targetPulseTween: Phaser.Tweens.Tween | null
     private wormholeGraphics: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics)[]
     private pendingEvents: PendingEvent[]
-    guiEvtListener : ((evtType: string, evtData?: GameEventPayload) => void) | null
+    guiEvtListener : ((evtType: string, evtData?: GUIEventPayload) => void) | null
 
     constructor() {
         super("game")
@@ -52,7 +52,7 @@ export class GameRenderer extends Phaser.Scene {
         setupBridge(this)
     }
 
-    propagateGuiEvt(evt: string, evtData?: GameEventPayload) {
+    propagateGuiEvt(evt: string, evtData?: GUIEventPayload): void {
       if (!this.guiEvtListener) {
         console.warn("No GUI event listener registered in GameRenderer to receive GUI events")
         return
@@ -233,7 +233,7 @@ export class GameRenderer extends Phaser.Scene {
         }
     }
 
-    private processGameEvt(evt: EventType, evtData: GameEventPayload): void {
+    private processGameEvt(evt: EventType, evtData?: GameEventPayload): void {
         switch (evt) {
             case Events.GAME_START:
                 this.handleGameStart()
@@ -311,7 +311,7 @@ export class GameRenderer extends Phaser.Scene {
         })
     }
 
-    onGameEvt(evt: EventType, evtData: GameEventPayload): void {
+    onGameEvt(evt: EventType, evtData?: GameEventPayload): void {
         this.pendingEvents.push({ evt, evtData })
     }
 
