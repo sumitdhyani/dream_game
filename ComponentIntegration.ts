@@ -54,6 +54,7 @@ import { use } from "matter";
 import { GameEngineFSM } from "./GameEngineFSM.js";
 import { Game } from "phaser";
 import { GameRenderer } from "./GameRenderer.js";
+import { TargetSelectors } from "./TargetSelectors.js";
 
 // Simple console logger implementation
 const logger : Logger = {
@@ -78,10 +79,7 @@ export function setupBridge(gameRenderer: GameRenderer) {
   serverNW.propagateGameEvt = clientNW.onGameEvt.bind(clientNW);
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
-    () => {
-      return new Position(Math.floor(Math.random() * GRID_W),
-        Math.floor(Math.random() * GRID_H))
-    },
+    TargetSelectors.oppositeQuadrant,
     logger)
 
   serverNW.propagateGuiEvt = gameEngineFSM.handleEvent.bind(gameEngineFSM);

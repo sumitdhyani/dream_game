@@ -34,6 +34,9 @@ interface PendingEvent {
     evtData: GameEventPayload | undefined
 }
 
+// Bot colors for visual distinction
+const BOT_COLORS = [0x00ff00, 0x00aaff, 0xffaa00, 0xff00ff, 0xffff00, 0x00ffff]
+
 export class GameRenderer extends Phaser.Scene {
     private engine: GameEngineFSM | null
     private playersRects: Record<string, Phaser.GameObjects.Rectangle> | null
@@ -43,6 +46,15 @@ export class GameRenderer extends Phaser.Scene {
     private wormholeGraphics: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics)[]
     private pendingEvents: PendingEvent[]
     guiEvtListener : FGuiEventListener | null
+
+    // Config UI state
+    private configUI: Phaser.GameObjects.GameObject[] | null
+    private configValues: {
+        numBots: number
+        botExpertise: number
+        playerSpeed: number
+        roundDuration: number
+    }
 
     constructor() {
         super("game")
@@ -54,6 +66,13 @@ export class GameRenderer extends Phaser.Scene {
         this.wormholeGraphics = []
         this.pendingEvents = []
         this.guiEvtListener = null
+        this.configUI = null
+        this.configValues = {
+            numBots: 3,
+            botExpertise: 2,
+            playerSpeed: 100,
+            roundDuration: 10
+        }
 
         setupBridge(this)
     }
@@ -195,13 +214,160 @@ export class GameRenderer extends Phaser.Scene {
     }
 
     private handleGameStart(): void {
-        console.log("Game started")
+        console.log("Game started - showing config UI")
+        this.showConfigUI()
+    }
+
+    private showConfigUI(): void {
+        this.configUI = []
+        const centerX = GRID_W * CELL / 2
+        const startY = 100
+        const lineHeight = 50
+
+        // Title
+        const title = this.add.text(centerX, startY, "Game Configuration", {
+            fontSize: "32px",
+            color: "#ffffff",
+            fontFamily: "monospace"
+        }).setOrigin(0.5)
+        this.configUI.push(title)
+
+        // Number of Bots (1-6)
+        this.createConfigRow(centerX, startY + lineHeight * 2, "Number of Bots", 
+            () => this.configValues.numBots.toString(),
+            () => { if (this.configValues.numBots > 1) this.configValues.numBots--; this.refreshConfigUI() },
+            () => { if (this.configValues.numBots < 6) this.configValues.numBots++; this.refreshConfigUI() }
+        )
+
+        // Bot Expertise (1-5)
+        this.createConfigRow(centerX, startY + lineHeight * 3, "Bot Expertise", 
+            () => this.configValues.botExpertise.toString(),
+            () => { if (this.configValues.botExpertise > 1) this.configValues.botExpertise--; this.refreshConfigUI() },
+            () => { if (this.configValues.botExpertise < 5) this.configValues.botExpertise++; this.refreshConfigUI() }
+        )
+
+        // Player Speed (50-500ms, step 25)
+        this.createConfigRow(centerX, startY + lineHeight * 4, "Move Delay (ms)", 
+            () => this.configValues.playerSpeed.toString(),
+            () => { if (this.configValues.playerSpeed > 50) this.configValues.playerSpeed -= 25; this.refreshConfigUI() },
+            () => { if (this.configValues.playerSpeed < 500) this.configValues.playerSpeed += 25; this.refreshConfigUI() }
+        )
+
+        // Round Duration (5-60 seconds, step 5)
+        this.createConfigRow(centerX, startY + lineHeight * 5, "Round Duration (s)", 
+            () => this.configValues.roundDuration.toString(),
+            () => { if (this.configValues.roundDuration > 5) this.configValues.roundDuration -= 5; this.refreshConfigUI() },
+            () => { if (this.configValues.roundDuration < 60) this.configValues.roundDuration += 5; this.refreshConfigUI() }
+        )
+
+        // Start Game Button
+        const startButton = this.add.text(centerX, startY + lineHeight * 7, "[ START GAME ]", {
+            fontSize: "28px",
+            color: "#00ff00",
+            fontFamily: "monospace",
+            backgroundColor: "#004400",
+            padding: { x: 20, y: 10 }
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true })
+
+        startButton.on("pointerover", () => startButton.setColor("#88ff88"))
+        startButton.on("pointerout", () => startButton.setColor("#00ff00"))
+        startButton.on("pointerdown", () => this.startGameWithConfig())
+        this.configUI.push(startButton)
+
+        // Instructions
+        const instructions = this.add.text(centerX, startY + lineHeight * 9, 
+            "Click arrows to adjust values, then click START GAME", {
+            fontSize: "14px",
+            color: "#888888",
+            fontFamily: "monospace"
+        }).setOrigin(0.5)
+        this.configUI.push(instructions)
+    }
+
+    private createConfigRow(
+        centerX: number, 
+        y: number, 
+        label: string, 
+        getValue: () => string,
+        onDecrease: () => void,
+        onIncrease: () => void
+    ): void {
+        const labelText = this.add.text(centerX - 200, y, label + ":", {
+            fontSize: "20px",
+            color: "#ffffff",
+            fontFamily: "monospace"
+        }).setOrigin(0, 0.5)
+        this.configUI!.push(labelText)
+
+        // Decrease button
+        const decreaseBtn = this.add.text(centerX + 50, y, "◀", {
+            fontSize: "24px",
+            color: "#ffaa00",
+            fontFamily: "monospace"
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true })
+        decreaseBtn.on("pointerover", () => decreaseBtn.setColor("#ffff00"))
+        decreaseBtn.on("pointerout", () => decreaseBtn.setColor("#ffaa00"))
+        decreaseBtn.on("pointerdown", onDecrease)
+        this.configUI!.push(decreaseBtn)
+
+        // Value display
+        const valueText = this.add.text(centerX + 100, y, getValue(), {
+            fontSize: "24px",
+            color: "#00ffff",
+            fontFamily: "monospace"
+        }).setOrigin(0.5)
+        valueText.setData("getValue", getValue)
+        this.configUI!.push(valueText)
+
+        // Increase button
+        const increaseBtn = this.add.text(centerX + 150, y, "▶", {
+            fontSize: "24px",
+            color: "#ffaa00",
+            fontFamily: "monospace"
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true })
+        increaseBtn.on("pointerover", () => increaseBtn.setColor("#ffff00"))
+        increaseBtn.on("pointerout", () => increaseBtn.setColor("#ffaa00"))
+        increaseBtn.on("pointerdown", onIncrease)
+        this.configUI!.push(increaseBtn)
+    }
+
+    private refreshConfigUI(): void {
+        if (!this.configUI) return
+        // Update all value displays
+        this.configUI.forEach(obj => {
+            if (obj instanceof Phaser.GameObjects.Text) {
+                const getValue = obj.getData("getValue") as (() => string) | undefined
+                if (getValue) {
+                    obj.setText(getValue())
+                }
+            }
+        })
+    }
+
+    private destroyConfigUI(): void {
+        if (this.configUI) {
+            this.configUI.forEach(obj => obj.destroy())
+            this.configUI = null
+        }
+    }
+
+    private startGameWithConfig(): void {
+        console.log("Starting game with config:", this.configValues)
+        this.destroyConfigUI()
+
+        // Create bot players based on configuration
+        const botPlayers: BotPlayer[] = []
+        for (let i = 0; i < this.configValues.numBots; i++) {
+            const botId = `bot${i + 1}`
+            const botName = `Bot ${i + 1}`
+            const botColor = BOT_COLORS[i % BOT_COLORS.length]
+            botPlayers.push(new BotPlayer(botId, botName, new Position(0, 0), botColor, this.configValues.botExpertise))
+        }
+
         const gameConfig: GameConfig = new GameConfig(
-            [new BotPlayer("bot1", "Bot 1", new Position(0, 0), 0x00ff00, 1),
-             new BotPlayer("bot2", "Bot 2", new Position(0, 0), 0x00aaff, 2),
-             new BotPlayer("bot3", "Bot 3", new Position(0, 0), 0xffaa00, 3)],
-            10000, // round duration in ms
-            100
+            botPlayers,
+            this.configValues.roundDuration * 1000, // convert to ms
+            this.configValues.playerSpeed
         )
         this.propagateGuiEvt(GuiEventType.game_configured, gameConfig)
     }

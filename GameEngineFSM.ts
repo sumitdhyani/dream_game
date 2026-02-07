@@ -28,6 +28,7 @@ import {
     GuiEventType,
     GUIEventPayload
 } from "./GlobalGameReference.js"
+import { TargetSelector, TargetSelectorContext } from './TargetSelectors.js'
 
 // ============================================================================
 // GameEngineFSM - Main FSM for game logic
@@ -43,12 +44,12 @@ function propagateGameEvt(logger: Logger, gameEvtHandler: GameEvtHandler, type: 
 export class GameEngineFSM extends FSM<GUIEventPayload, undefined> {
     constructor(
         gameEvtHandler: GameEvtHandler,
-        targetGenerator: TargetGenerator,
+        targetSelector: TargetSelector,
         logger: Logger
     ) {
         const initState = new PreStart(
             gameEvtHandler,
-            targetGenerator,
+            targetSelector,
             null!,  // Will be set after super()
             logger
         )
@@ -68,19 +69,19 @@ export class GameEngineFSM extends FSM<GUIEventPayload, undefined> {
 
 class PreStart extends State<GUIEventPayload, undefined> {
     private readonly gameEvtHandler: GameEvtHandler
-    private readonly targetGenerator: TargetGenerator
+    private readonly targetSelector: TargetSelector
     private readonly logger: Logger
     selfFsm!: GameEngineFSM
 
     constructor(
         gameEvtHandler: GameEvtHandler,
-        targetGenerator: TargetGenerator,
+        targetSelector: TargetSelector,
         selfFsm: GameEngineFSM,
         logger: Logger
     ) {
         super()
         this.gameEvtHandler = gameEvtHandler
-        this.targetGenerator = targetGenerator
+        this.targetSelector = targetSelector
         this.selfFsm = selfFsm
         this.logger = logger
     }
@@ -96,18 +97,27 @@ class PreStart extends State<GUIEventPayload, undefined> {
         const activePlayers = Array.from<Player>(allPlayers)
         const eliminatedPlayers: Player[] = []
 
+        // Generate initial target using selector with initial context
+        const initialContext: TargetSelectorContext = {
+            activePlayers,
+            eliminatedPlayer: null,
+            roundNumber: 1,
+            previousTarget: null
+        }
+        const initialTarget = this.targetSelector(initialContext)
+
         return new PlayingRound(
             this.gameEvtHandler,
             allPlayers,
             activePlayers,
             eliminatedPlayers,
             self,
-            this.targetGenerator,
+            this.targetSelector,
             gameConfig.roundDuration_ms,
             this.selfFsm,
             1,
             gameConfig.playerSpeed,
-            this.targetGenerator(),
+            initialTarget,
             this.logger)
 
     }
@@ -128,7 +138,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
     private readonly activePlayers: Player[]
     private readonly eliminatedPlayers: Player[]
     private readonly self: Player
-    private readonly targetGenerator: TargetGenerator
+    private readonly targetSelector: TargetSelector
     private readonly roundLength: number
     private timeLeft: number
     private timerId: ReturnType<typeof setInterval> | null
@@ -148,7 +158,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
         activePlayers: Player[],
         eliminatedPlayers: Player[],
         self: Player,
-        targetGenerator: TargetGenerator,
+        targetSelector: TargetSelector,
         roundLength: number,
         selfFsm: GameEngineFSM,
         roundNo: number,
@@ -162,7 +172,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
         this.activePlayers = activePlayers
         this.self = self
         this.eliminatedPlayers = eliminatedPlayers
-        this.targetGenerator = targetGenerator
+        this.targetSelector = targetSelector
         this.roundLength = roundLength
         this.timeLeft = roundLength
         this.timerId = null
@@ -355,7 +365,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
             this.activePlayers,
             this.self,
             this.eliminatedPlayers,
-            this.targetGenerator,
+            this.targetSelector,
             this.roundLength,
             this.selfFsm,
             this.roundNo,
@@ -469,14 +479,14 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
     private readonly activePlayers: Player[]
     private readonly self: Player
     private readonly eliminatedPlayers: Player[]
-    private readonly targetGenerator: TargetGenerator
+    private readonly targetSelector: TargetSelector
     private readonly roundLength: number
     private readonly selfFsm: GameEngineFSM
     private readonly roundNo: number
     private readonly target: Position
     private readonly moveDelay: number
     private readonly logger: Logger
-    private loserPosition: Position | null
+    private eliminatedPlayer: Player | null
 
     constructor(
         gameEvtHandler: GameEvtHandler,
@@ -484,7 +494,7 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
         activePlayers: Player[],
         self: Player,
         eliminatedPlayers: Player[],
-        targetGenerator: TargetGenerator,
+        targetSelector: TargetSelector,
         roundLength: number,
         selfFsm: GameEngineFSM,
         roundNo: number,
@@ -498,14 +508,14 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
         this.activePlayers = activePlayers
         this.self = self
         this.eliminatedPlayers = eliminatedPlayers
-        this.targetGenerator = targetGenerator
+        this.targetSelector = targetSelector
         this.roundLength = roundLength
         this.selfFsm = selfFsm
         this.roundNo = roundNo
         this.target = target
         this.moveDelay = moveDelay
         this.logger = logger
-        this.loserPosition = null
+        this.eliminatedPlayer = null
     }
 
     private findFarthestPlayerIdxs(): number[] {
@@ -555,29 +565,36 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
     }
 
     on_launch(): GameOver | void {
-        const eliminatedPlayer = this.eliminateLoser()
+        this.eliminatedPlayer = this.eliminateLoser()
 
         if (this.activePlayers.length === 1) {
             const winner_player = this.activePlayers[0]
             return new GameOver(this.gameEvtHandler, this.roundNo, this.players, winner_player, this.logger)
-        } else if (eliminatedPlayer !== null) {
-            this.loserPosition = eliminatedPlayer.position
         }
 
-        const roundSummary = new RoundSummary(this.roundNo, eliminatedPlayer)
+        const roundSummary = new RoundSummary(this.roundNo, this.eliminatedPlayer)
         propagateGameEvt(this.logger, this.gameEvtHandler, Events.ROUND_END, new Evt_RoundEnd(roundSummary))
         return
     }
 
     on_ready_to_host(): PlayingRound {
-        const newTarget = this.loserPosition !== null ? this.loserPosition : this.targetGenerator()
+        // Build context for target selector
+        const context: TargetSelectorContext = {
+            activePlayers: this.activePlayers,
+            eliminatedPlayer: this.eliminatedPlayer,
+            roundNumber: this.roundNo + 1,
+            previousTarget: this.target
+        }
+        
+        const newTarget = this.targetSelector(context)
+        
         return new PlayingRound(
             this.gameEvtHandler,
             this.players,
             this.activePlayers,
             this.eliminatedPlayers,
             this.self,
-            this.targetGenerator,
+            this.targetSelector,
             this.roundLength,
             this.selfFsm,
             this.roundNo + 1,
