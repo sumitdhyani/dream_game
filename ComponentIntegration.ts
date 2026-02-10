@@ -48,13 +48,15 @@
 
 import { ClientSideNWInterface,
          ServerSideNWInterface,
-         Logger} from "./NetworkInterface.js";
-import { GRID_H, GRID_W, Player, Position } from "./GlobalGameReference.js";
+         Logger,
+         FGuiEventListener} from "./NetworkInterface.js";
+import { BotPlayer, GRID_H, GRID_W, Player, Position } from "./GlobalGameReference.js";
 import { use } from "matter";
 import { GameEngineFSM } from "./GameEngineFSM.js";
 import { Game } from "phaser";
 import { GameRenderer } from "./GameRenderer.js";
 import { TargetSelectors } from "./TargetSelectors.js";
+import { BotClient, createSimpleBotAI } from "./BotClient.js";
 
 // Simple console logger implementation
 const logger : Logger = {
@@ -68,12 +70,39 @@ const logger : Logger = {
 export function setupBridge(gameRenderer: GameRenderer) {
   let clientNW: ClientSideNWInterface | null = null;
   let serverNW: ServerSideNWInterface | null = null;
+  const botClients: BotClient[] = [];
 
   clientNW = new ClientSideNWInterface(logger);
   serverNW = new ServerSideNWInterface(logger);
 
   gameRenderer.guiEvtListener = clientNW.onGuiEvent.bind(clientNW);
   clientNW.propagateGameEvt = gameRenderer.onGameEvt.bind(gameRenderer);
+
+  // Factory to create BotClients when game starts
+  gameRenderer.botClientFactory = (botPlayers: BotPlayer[], guiEvtSender: FGuiEventListener) => {
+    // Clear any existing bot clients
+    botClients.forEach(bc => {
+      clientNW!.gameEventEmitter.unregister(bc.onGameEvt.bind(bc));
+      bc.destroy();
+    });
+    botClients.length = 0;
+
+    // Create a BotClient for each bot player
+    botPlayers.forEach(botPlayer => {
+      const botClient = new BotClient(
+        botPlayer,
+        guiEvtSender,
+        createSimpleBotAI(0.1), // 10% random moves
+        60 // think interval ms
+      );
+      
+      // Register to receive game events
+      clientNW!.gameEventEmitter.register(botClient.onGameEvt.bind(botClient));
+      botClients.push(botClient);
+    });
+
+    logger.info(`Created ${botClients.length} BotClients`);
+  };
 
   clientNW.propagateGuiEvt = serverNW.onGuiEvent.bind(serverNW);
   serverNW.propagateGameEvt = clientNW.onGameEvt.bind(clientNW);

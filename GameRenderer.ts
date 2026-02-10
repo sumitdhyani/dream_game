@@ -20,7 +20,8 @@ import {
     EventType,
     GameEventPayload,
     GuiEventType,
-    GameConfig
+    GameConfig,
+    KeyPressEvent
 } from './GlobalGameReference.js'
 import { GameEngineFSM } from './GameEngineFSM.js'
 import { setupBridge } from './ComponentIntegration.js'
@@ -37,6 +38,9 @@ interface PendingEvent {
 // Bot colors for visual distinction
 const BOT_COLORS = [0x00ff00, 0x00aaff, 0xffaa00, 0xff00ff, 0xffff00, 0x00ffff]
 
+// Human player ID - matches the ID assigned in GameEngineFSM
+const SELF_PLAYER_ID = "self_id"
+
 export class GameRenderer extends Phaser.Scene {
     private engine: GameEngineFSM | null
     private playersRects: Record<string, Phaser.GameObjects.Rectangle> | null
@@ -46,6 +50,7 @@ export class GameRenderer extends Phaser.Scene {
     private wormholeGraphics: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics)[]
     private pendingEvents: PendingEvent[]
     guiEvtListener : FGuiEventListener | null
+    botClientFactory: ((botPlayers: BotPlayer[], guiEvtSender: FGuiEventListener) => void) | null
 
     // Config UI state
     private configUI: Phaser.GameObjects.GameObject[] | null
@@ -66,6 +71,7 @@ export class GameRenderer extends Phaser.Scene {
         this.wormholeGraphics = []
         this.pendingEvents = []
         this.guiEvtListener = null
+        this.botClientFactory = null
         this.configUI = null
         this.configValues = {
             numBots: 3,
@@ -90,19 +96,19 @@ export class GameRenderer extends Phaser.Scene {
         this.drawGrid()
 
         this.input.keyboard!.on("keydown-LEFT", () => {
-            this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.LEFT)
+            this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.LEFT, Date.now()))
         })
 
         this.input.keyboard!.on("keydown-RIGHT", () => {
-          this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.RIGHT)
+          this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.RIGHT, Date.now()))
         })
 
         this.input.keyboard!.on("keydown-UP", () => {
-            this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.UP)
+            this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.UP, Date.now()))
         })
 
         this.input.keyboard!.on("keydown-DOWN", () => {
-            this.propagateGuiEvt(GuiEventType.key_press, keyboardKeys.DOWN)
+            this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.DOWN, Date.now()))
         })
 
         this.events.once("shutdown", () => {
@@ -369,6 +375,12 @@ export class GameRenderer extends Phaser.Scene {
             this.configValues.roundDuration * 1000, // convert to ms
             this.configValues.playerSpeed
         )
+
+        // Create BotClients for each bot player
+        if (this.botClientFactory && this.guiEvtListener) {
+            this.botClientFactory(botPlayers, this.guiEvtListener)
+        }
+
         this.propagateGuiEvt(GuiEventType.game_configured, gameConfig)
     }
 

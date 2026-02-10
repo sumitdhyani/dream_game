@@ -18,10 +18,51 @@ export type FGameEvtPropagator = FGameEvtListener;
 export type FGuiEventListener = (evtType: string, event?: GUIEventPayload) => void;
 export type FGuiEvtPropagator = FGuiEventListener;
 
+// ============================================================================
+// GameEventEmitter - Multicast delegate for game events
+// Allows multiple listeners (GameRenderer, BotClients) to subscribe
+// ============================================================================
+export class GameEventEmitter {
+    private listeners: Set<FGameEvtListener> = new Set()
+
+    /**
+     * Register a listener to receive game events
+     */
+    register(listener: FGameEvtListener): void {
+        this.listeners.add(listener)
+    }
+
+    /**
+     * Unregister a listener
+     */
+    unregister(listener: FGameEvtListener): void {
+        this.listeners.delete(listener)
+    }
+
+    /**
+     * Emit a game event to all registered listeners
+     */
+    emit(type: EventType, payload?: GameEventPayload): void {
+        this.listeners.forEach(listener => listener(type, payload))
+    }
+
+    /**
+     * Check if any listeners are registered
+     */
+    hasListeners(): boolean {
+        return this.listeners.size > 0
+    }
+}
+
 // Client-side network interface (used by GameRenderer)
 export class ClientSideNWInterface {
+  /** @deprecated Use gameEventEmitter.register() instead */
   propagateGameEvt: FGameEvtPropagator | null;
   propagateGuiEvt: FGuiEvtPropagator | null;
+  
+  /** Event emitter for game events - register listeners here */
+  readonly gameEventEmitter: GameEventEmitter = new GameEventEmitter();
+  
   private logger: Logger;
   
   constructor(logger: Logger) {
@@ -43,12 +84,20 @@ export class ClientSideNWInterface {
 
   // Called by network/server to deliver game events
   onGameEvt(type: EventType, event?: GameEventPayload) {
-    if (!this.propagateGameEvt) {
-      this.logger.warn("No game event handler registered to receive game events");
-      return;
+    // First, emit to all registered listeners (new pattern)
+    if (this.gameEventEmitter.hasListeners()) {
+      this.gameEventEmitter.emit(type, event);
     }
-
-    this.propagateGameEvt(type, event);
+    
+    // Also call legacy propagateGameEvt if set (backwards compatibility)
+    if (this.propagateGameEvt) {
+      this.propagateGameEvt(type, event);
+    }
+    
+    // Warn only if neither is configured
+    if (!this.gameEventEmitter.hasListeners() && !this.propagateGameEvt) {
+      this.logger.warn("No game event handler registered to receive game events");
+    }
   }
 }
 

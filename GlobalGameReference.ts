@@ -36,6 +36,23 @@ export const keyboardKeys = {
 
 // GUI event payloads
 export type KeyboardKey = typeof keyboardKeys[keyof typeof keyboardKeys]
+
+/**
+ * Key press event with player identification and timestamp
+ * Used for both human and bot input through the same pipeline
+ */
+export class KeyPressEvent {
+    readonly playerId: string
+    readonly key: KeyboardKey
+    readonly clientTimestamp: number
+
+    constructor(playerId: string, key: KeyboardKey, clientTimestamp: number = Date.now()) {
+        this.playerId = playerId
+        this.key = key
+        this.clientTimestamp = clientTimestamp
+    }
+}
+
 export class GameConfig {
     botPlayers: BotPlayer[]
     roundDuration_ms: number
@@ -238,7 +255,7 @@ export type GameEventPayload =
     | KeyboardKey
 
 
-export type GUIEventPayload = KeyboardKey | GameConfig
+export type GUIEventPayload = KeyboardKey | KeyPressEvent | GameConfig
 export type GameEvtHandler = (event: EventType, payload?: GameEventPayload) => void
 export type TargetGenerator = () => Position
 

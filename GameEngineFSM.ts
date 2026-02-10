@@ -22,6 +22,7 @@ import {
     GameEventPayload,
     TargetGenerator,
     KeyboardKey,
+    KeyPressEvent,
     EventType,
     GameConfig,
     BotPlayer,
@@ -142,7 +143,6 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
     private readonly roundLength: number
     private timeLeft: number
     private timerId: ReturnType<typeof setInterval> | null
-    private botTimerIds: ReturnType<typeof setInterval>[] | null
     private readonly selfFsm: GameEngineFSM
     private readonly roundNo: number
     private readonly moveDelay: number
@@ -176,7 +176,6 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
         this.roundLength = roundLength
         this.timeLeft = roundLength
         this.timerId = null
-        this.botTimerIds = null
         this.selfFsm = selfFsm
         this.roundNo = roundNo
         this.moveDelay = moveDelay
@@ -272,48 +271,53 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
             }
         }, 1000)
 
-        const botPlayers = this.activePlayers.filter((player) => {
-            return player.id !== this.self.id
-        })
-
-        this.botTimerIds = botPlayers.map((botPlayer) => {
-            return setInterval(() => {
-                this.moveBot(botPlayer, this.target)
-            }, 60)
-        })
     }
 
-    on_key_press(key: KeyboardKey): TeleportingSubState | null | undefined{
-        if (!this.self.alive ||
-            Date.now() - this.lastMoveTimes[this.self.id] < this.moveDelay) {
+    on_key_press(keyPressEvent: KeyPressEvent): TeleportingSubState | null | undefined{
+        // Find the player by ID
+        const player = this.activePlayers.find(p => p.id === keyPressEvent.playerId)
+        if (!player || !player.alive) {
             return
         }
 
+        // Throttle check per player
+        if (Date.now() - this.lastMoveTimes[player.id] < this.moveDelay) {
+            return
+        }
+
+        const key = keyPressEvent.key
         switch (key) {
             case keyboardKeys.UP:
-                this.self.position.y--
+                player.position.y--
                 break
             case keyboardKeys.DOWN:
-                this.self.position.y++
+                player.position.y++
                 break
             case keyboardKeys.LEFT:
-                this.self.position.x--
+                player.position.x--
                 break
             case keyboardKeys.RIGHT:
-                this.self.position.x++
+                player.position.x++
                 break
         }
 
-        this.lastMoveTimes[this.self.id] = Date.now()
+        // Clamp to grid boundaries
+        player.position.x = Math.max(0, Math.min(GRID_W - 1, player.position.x))
+        player.position.y = Math.max(0, Math.min(GRID_H - 1, player.position.y))
+
+        this.lastMoveTimes[player.id] = Date.now()
         propagateGameEvt(this.logger, this.gameEvtHandler, Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
 
-        const teleportState = this.checkWormholeTeleport()
-        if (teleportState) {
-            return teleportState
-        }
+        // Check for wormhole teleport (only for self player for now)
+        if (player.id === this.self.id) {
+            const teleportState = this.checkWormholeTeleport()
+            if (teleportState) {
+                return teleportState
+            }
 
-        this.checkSelfReachedTarget()
-        this.checkSelfLeftTarget()
+            this.checkSelfReachedTarget()
+            this.checkSelfLeftTarget()
+        }
     }
 
     private checkWormholeTeleport(): TeleportingSubState | null {
@@ -351,11 +355,6 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
 
     beforeExit(): void {
         if (this.timerId) clearInterval(this.timerId)
-        if (this.botTimerIds) {
-            this.botTimerIds.forEach(botTimerId => {
-                clearInterval(botTimerId)
-            })
-        }
     }
 
     on_round_end(): RoundEnded {
@@ -380,36 +379,6 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
         const dy = player.position.y - this.target.y
         const distance = Math.sqrt(dx * dx + dy * dy)
         return distance <= 1
-    }
-
-    private moveBot(botPlayer: Player, target: Position): void {
-        if (Date.now() - this.lastMoveTimes[botPlayer.id] < this.moveDelay) {
-            return
-        }
-
-        if (Math.random() < 0.1) {
-            const directions = [
-                { x: 0, y: -1 },
-                { x: 0, y: 1 },
-                { x: -1, y: 0 },
-                { x: 1, y: 0 }
-            ]
-            const randomDir = directions[Math.floor(Math.random() * directions.length)]
-            botPlayer.position.x += randomDir.x
-            botPlayer.position.y += randomDir.y
-        } else if (!this.isPlayerAtTarget(botPlayer)) {
-            const dx = target.x - botPlayer.position.x
-            const dy = target.y - botPlayer.position.y
-
-            if (Math.abs(dx) > Math.abs(dy)) {
-                botPlayer.position.x += dx > 0 ? 1 : -1
-            } else {
-                botPlayer.position.y += dy > 0 ? 1 : -1
-            }
-        }
-
-        this.lastMoveTimes[botPlayer.id] = Date.now()
-        propagateGameEvt(this.logger, this.gameEvtHandler, Events.PLAYER_POSITIONS_UPDATE, new Evt_PlayerPositionsUpdate(this.activePlayers))
     }
 }
 
@@ -458,7 +427,7 @@ class TeleportingSubState extends SubState<GUIEventPayload, undefined> {
         if (this.timerId) clearTimeout(this.timerId)
     }
 
-    on_key_press(key: KeyboardKey): SpecialTransitionValue {
+    on_key_press(_keyPressEvent: KeyPressEvent): SpecialTransitionValue {
         return SpecialTransition.deferralTransition
     }
 
