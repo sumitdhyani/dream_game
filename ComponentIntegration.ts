@@ -76,13 +76,13 @@ export function setupBridge(gameRenderer: GameRenderer) {
   serverNW = new ServerSideNWInterface(logger);
 
   gameRenderer.guiEvtListener = clientNW.onGuiEvent.bind(clientNW);
-  clientNW.propagateGameEvt = gameRenderer.onGameEvt.bind(gameRenderer);
+  clientNW.gameEventEmitter.register(gameRenderer.onGameEvt.bind(gameRenderer));
 
   // Factory to create BotClients when game starts
   gameRenderer.botClientFactory = (botPlayers: BotPlayer[], guiEvtSender: FGuiEventListener) => {
     // Clear any existing bot clients
     botClients.forEach(bc => {
-      clientNW!.gameEventEmitter.unregister(bc.onGameEvt.bind(bc));
+      clientNW.gameEventEmitter.unregister(bc.onGameEvt.bind(bc));
       bc.destroy();
     });
     botClients.length = 0;
@@ -97,7 +97,7 @@ export function setupBridge(gameRenderer: GameRenderer) {
       );
       
       // Register to receive game events
-      clientNW!.gameEventEmitter.register(botClient.onGameEvt.bind(botClient));
+      clientNW.gameEventEmitter.register(botClient.onGameEvt.bind(botClient));
       botClients.push(botClient);
     });
 
@@ -108,7 +108,7 @@ export function setupBridge(gameRenderer: GameRenderer) {
   serverNW.propagateGameEvt = clientNW.onGameEvt.bind(clientNW);
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
-    TargetSelectors.oppositeQuadrant,
+    TargetSelectors.hybrid,
     logger)
 
   serverNW.propagateGuiEvt = gameEngineFSM.handleEvent.bind(gameEngineFSM);

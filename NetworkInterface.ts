@@ -56,8 +56,6 @@ export class GameEventEmitter {
 
 // Client-side network interface (used by GameRenderer)
 export class ClientSideNWInterface {
-  /** @deprecated Use gameEventEmitter.register() instead */
-  propagateGameEvt: FGameEvtPropagator | null;
   propagateGuiEvt: FGuiEvtPropagator | null;
   
   /** Event emitter for game events - register listeners here */
@@ -68,7 +66,6 @@ export class ClientSideNWInterface {
   constructor(logger: Logger) {
     this.logger = logger;
 
-    this.propagateGameEvt = null;
     this.propagateGuiEvt = null;
   }
 
@@ -85,17 +82,10 @@ export class ClientSideNWInterface {
   // Called by network/server to deliver game events
   onGameEvt(type: EventType, event?: GameEventPayload) {
     // First, emit to all registered listeners (new pattern)
-    if (this.gameEventEmitter.hasListeners()) {
-      this.gameEventEmitter.emit(type, event);
-    }
-    
-    // Also call legacy propagateGameEvt if set (backwards compatibility)
-    if (this.propagateGameEvt) {
-      this.propagateGameEvt(type, event);
-    }
+    this.gameEventEmitter.emit(type, event);
     
     // Warn only if neither is configured
-    if (!this.gameEventEmitter.hasListeners() && !this.propagateGameEvt) {
+    if (!this.gameEventEmitter.hasListeners()) {
       this.logger.warn("No game event handler registered to receive game events");
     }
   }
