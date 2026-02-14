@@ -50,13 +50,28 @@ import { ClientSideNWInterface,
          ServerSideNWInterface,
          Logger,
          FGuiEventListener} from "./NetworkInterface.js";
-import { BotPlayer, GRID_H, GRID_W, Player, Position } from "./GlobalGameReference.js";
+import { BotPlayer, WormholeGenerator } from "./GlobalGameReference.js";
 import { use } from "matter";
 import { GameEngineFSM } from "./GameEngineFSM.js";
 import { Game } from "phaser";
 import { GameRenderer } from "./GameRenderer.js";
 import { TargetSelectors } from "./TargetSelectors.js";
 import { BotClient, createSimpleBotAI } from "./BotClient.js";
+import { wormHoleGeneratorFactory } from "./WormholeGeneration/WormholeCreationStrategies.js";
+
+import { WormholeCountStrategy, 
+         countStrategyBalanced,
+         countStrategyMinimal,
+         countStrategyPerPlayer } from "./WormholeGeneration/CountStrategy.js";
+         
+import { IndecisionStrategy,
+         strategyAverage,
+         strategyGeometricMean,
+         strategyHarmonicMean,
+        strategyMedian,
+        strategyMinimum,
+        createVariancePenalizedStrategy,
+        createSoftMinStrategy } from "./WormholeGeneration/IndecisionStrategy.js";
 
 // Simple console logger implementation
 const logger : Logger = {
@@ -109,6 +124,7 @@ export function setupBridge(gameRenderer: GameRenderer) {
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
     TargetSelectors.hybrid,
+    wormHoleGeneratorFactory(strategyAverage, countStrategyBalanced),
     logger)
 
   serverNW.propagateGuiEvt = gameEngineFSM.handleEvent.bind(gameEngineFSM);

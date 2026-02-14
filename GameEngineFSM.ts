@@ -27,7 +27,8 @@ import {
     GameConfig,
     BotPlayer,
     GuiEventType,
-    GUIEventPayload
+    GUIEventPayload,
+    WormholeGenerator
 } from "./GlobalGameReference.js"
 import { TargetSelector, TargetSelectorContext } from './TargetSelectors.js'
 
@@ -46,12 +47,14 @@ export class GameEngineFSM extends FSM<GUIEventPayload, undefined> {
     constructor(
         gameEvtHandler: GameEvtHandler,
         targetSelector: TargetSelector,
+        wormholeGenerator: WormholeGenerator,
         logger: Logger
     ) {
         const initState = new PreStart(
             gameEvtHandler,
             targetSelector,
             null!,  // Will be set after super()
+            wormholeGenerator,
             logger
         )
         super(() => initState, logger)
@@ -72,18 +75,21 @@ class PreStart extends State<GUIEventPayload, undefined> {
     private readonly gameEvtHandler: GameEvtHandler
     private readonly targetSelector: TargetSelector
     private readonly logger: Logger
+    private readonly wormholeGenerator: WormholeGenerator
     selfFsm!: GameEngineFSM
 
     constructor(
         gameEvtHandler: GameEvtHandler,
         targetSelector: TargetSelector,
         selfFsm: GameEngineFSM,
+        wormholeGenerator: WormholeGenerator,
         logger: Logger
     ) {
         super()
         this.gameEvtHandler = gameEvtHandler
         this.targetSelector = targetSelector
         this.selfFsm = selfFsm
+        this.wormholeGenerator = wormholeGenerator
         this.logger = logger
     }
 
@@ -119,6 +125,7 @@ class PreStart extends State<GUIEventPayload, undefined> {
             1,
             gameConfig.playerSpeed,
             initialTarget,
+            this.wormholeGenerator,
             this.logger)
 
     }
@@ -144,6 +151,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
     private timeLeft: number
     private timerId: ReturnType<typeof setInterval> | null
     private readonly selfFsm: GameEngineFSM
+    private readonly wormholeGenerator: WormholeGenerator
     private readonly roundNo: number
     private readonly moveDelay: number
     private readonly target: Position
@@ -164,6 +172,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
         roundNo: number,
         moveDelay: number,
         target: Position,
+        wormholeGenerator: WormholeGenerator,
         logger: Logger)
     {
         super()
@@ -180,73 +189,23 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
         this.roundNo = roundNo
         this.moveDelay = moveDelay
         this.target = target
+        this.wormholeGenerator = wormholeGenerator
 
         this.gameEvtHandler = gameEvtHandler
-        this.wormholes = []
-
         this.lastMoveTimes = {}
         this.selfReachedTarget = false
         this.activePlayers.forEach((player) => {
             this.lastMoveTimes[player.id] = 0
         })
 
-        this.generateWormholes()
+        this.wormholes = wormholeGenerator(GRID_W, GRID_H, this.target, this.activePlayers)
+        this.wormholes.forEach((wormhole, idx) => {
+            this.logger.info(`Generated wormhole ${idx}: entrance (${wormhole.entrance.x}, ${wormhole.entrance.y}) -> exit (${wormhole.exit.x}, ${wormhole.exit.y})`)
+        })
     }
 
     registerForGameEvts(gameEvtHandler: GameEvtHandler) {
         this.gameEvtHandler = gameEvtHandler
-    }
-
-    private generateWormholes(): void {
-        const colors = [0x00ffff, 0x00ff00, 0xff00ff, 0xffff00]
-        const wormholeCount = 3
-
-        for (let i = 0; i < wormholeCount; i++) {
-            let entrance!: Position
-            let exit!: Position
-            let valid = false
-
-            while (!valid) {
-                entrance = new Position(
-                    Math.floor(Math.random() * GRID_W),
-                    Math.floor(Math.random() * GRID_H)
-                )
-                if (entrance.x === this.target.x && entrance.y === this.target.y) continue
-                const onPlayer = this.activePlayers.some(p =>
-                    p.position.x === entrance.x && p.position.y === entrance.y
-                )
-                if (onPlayer) continue
-                const overlaps = this.wormholes.some(w =>
-                    w.entrance.x === entrance.x && w.entrance.y === entrance.y
-                )
-                if (overlaps) continue
-                valid = true
-            }
-
-            valid = false
-            while (!valid) {
-                exit = new Position(
-                    Math.floor(Math.random() * GRID_W),
-                    Math.floor(Math.random() * GRID_H)
-                )
-                if (exit.x === this.target.x && exit.y === this.target.y) continue
-                const overlaps = this.wormholes.some(w =>
-                    (w.entrance.x === exit.x && w.entrance.y === exit.y) ||
-                    (w.exit.x === exit.x && w.exit.y === exit.y)
-                )
-                if (overlaps) continue
-                if (exit.x === entrance.x && exit.y === entrance.y) continue
-                valid = true
-            }
-
-            const wormhole = new Wormhole(`wh_${i}`, entrance, exit, colors[i % colors.length])
-            this.wormholes.push(wormhole)
-            this.wormholes.forEach(w => {
-                console.log(`Wormhole ${w.id}: entrance (${w.entrance.x}, ${w.entrance.y}) -> exit (${w.exit.x}, ${w.exit.y})`)
-            })
-        }
-
-        console.log(`Generated ${this.wormholes.length} wormholes`)
     }
 
     onEntry(): void {
@@ -370,6 +329,7 @@ class PlayingRound extends State<GUIEventPayload, undefined> {
             this.roundNo,
             this.target,
             this.moveDelay,
+            this.wormholeGenerator,
             this.logger
         )
     }
@@ -455,6 +415,7 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
     private readonly target: Position
     private readonly moveDelay: number
     private readonly logger: Logger
+    private readonly wormholeGenerator: WormholeGenerator
     private eliminatedPlayer: Player | null
 
     constructor(
@@ -469,6 +430,7 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
         roundNo: number,
         target: Position,
         moveDelay: number,
+        wormholeGenerator: WormholeGenerator,
         logger: Logger
     ) {
         super()
@@ -483,6 +445,7 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
         this.roundNo = roundNo
         this.target = target
         this.moveDelay = moveDelay
+        this.wormholeGenerator = wormholeGenerator
         this.logger = logger
         this.eliminatedPlayer = null
     }
@@ -569,6 +532,7 @@ class RoundEnded extends State<GUIEventPayload, undefined> {
             this.roundNo + 1,
             this.moveDelay,
             newTarget,
+            this.wormholeGenerator,
             this.logger
         )
     }
