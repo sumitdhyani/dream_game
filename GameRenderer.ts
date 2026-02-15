@@ -45,9 +45,12 @@ export class GameRenderer extends Phaser.Scene {
     private engine: GameEngineFSM | null
     private playersRects: Record<string, Phaser.GameObjects.Rectangle> | null
     private countdown: Phaser.GameObjects.Text | null
-    private targetRect: Phaser.GameObjects.Rectangle | null
+    private targetGraphics: Phaser.GameObjects.Graphics | null
+    private targetGlow: Phaser.GameObjects.Graphics | null
     private targetPulseTween: Phaser.Tweens.Tween | null
-    private wormholeGraphics: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics)[]
+    private targetPosition: Position | null
+    private wormholeGraphics: Phaser.GameObjects.Graphics[]
+    private wormholeEntranceTweens: Phaser.Tweens.Tween[]
     private pendingEvents: PendingEvent[]
     guiEvtListener : FGuiEventListener | null
     botClientFactory: ((botPlayers: BotPlayer[], guiEvtSender: FGuiEventListener) => void) | null
@@ -66,9 +69,12 @@ export class GameRenderer extends Phaser.Scene {
         this.engine = null
         this.playersRects = null
         this.countdown = null
-        this.targetRect = null
+        this.targetGraphics = null
+        this.targetGlow = null
         this.targetPulseTween = null
+        this.targetPosition = null
         this.wormholeGraphics = []
+        this.wormholeEntranceTweens = []
         this.pendingEvents = []
         this.guiEvtListener = null
         this.botClientFactory = null
@@ -123,12 +129,25 @@ export class GameRenderer extends Phaser.Scene {
         if (this.countdown) {
             this.countdown.destroy()
         }
-        if (this.targetRect) {
-            this.targetRect.destroy()
+        if (this.targetGraphics) {
+            this.targetGraphics.destroy()
+        }
+        if (this.targetGlow) {
+            this.targetGlow.destroy()
+        }
+        if (this.targetPulseTween) {
+            this.targetPulseTween.stop()
+            this.targetPulseTween = null
         }
         this.playersRects = null
         this.countdown = null
-        this.targetRect = null
+        this.targetGraphics = null
+        this.targetGlow = null
+        this.targetPosition = null
+        if (this.wormholeEntranceTweens) {
+            this.wormholeEntranceTweens.forEach(t => t.stop())
+            this.wormholeEntranceTweens = []
+        }
         if (this.wormholeGraphics) {
             this.wormholeGraphics.forEach(g => g.destroy())
             this.wormholeGraphics = []
@@ -199,11 +218,10 @@ export class GameRenderer extends Phaser.Scene {
             }
         )
 
-        this.targetRect = this.add.rectangle(
-            evt_round_start.target.x * CELL + CELL / 2,
-            evt_round_start.target.y * CELL + CELL / 2,
-            CELL - 4, CELL - 4, 0xff3333
-        )
+        // Draw target as a star with glow
+        this.targetPosition = evt_round_start.target
+        this.drawTarget(evt_round_start.target, 0xffdd00) // Golden yellow
+        this.startTargetPulse()
 
         this.countdown.setOrigin(1, 0)
         this.renderPlayers(evt_round_start.players)
@@ -392,22 +410,26 @@ export class GameRenderer extends Phaser.Scene {
     private handleSelfReachedTarget(evt_self_reached_target: Evt_SelfReachedTarget): void {
         console.log(`Self player reached target!`)
         const player = evt_self_reached_target.player
-        if (this.targetRect) {
-            this.targetRect.setFillStyle(player.color)
-            this.targetRect.setAlpha(1.0)
+        
+        // Redraw target with player's color
+        if (this.targetPosition) {
+            if (this.targetPulseTween) {
+                this.targetPulseTween.stop()
+            }
+            if (this.targetGraphics) this.targetGraphics.destroy()
+            if (this.targetGlow) this.targetGlow.destroy()
+            
+            this.drawTarget(this.targetPosition, player.color)
+            
+            // Fast blink animation when reached
+            this.targetPulseTween = this.tweens.add({
+                targets: [this.targetGraphics, this.targetGlow],
+                alpha: { from: 1.0, to: 0.2 },
+                duration: 200,
+                loop: -1,
+                yoyo: true
+            })
         }
-
-        if (this.targetPulseTween) {
-            this.targetPulseTween.stop()
-        }
-
-        this.targetPulseTween = this.tweens.add({
-            targets: this.targetRect,
-            alpha: [1.0, 0.0],
-            duration: 400,
-            loop: -1,
-            yoyo: true
-        })
     }
 
     private handleSelfLeftTarget(evt_self_left_target: Evt_SelfLeftTarget): void {
@@ -417,9 +439,12 @@ export class GameRenderer extends Phaser.Scene {
             this.targetPulseTween = null
         }
 
-        if (this.targetRect) {
-            this.targetRect.setFillStyle(0xff3333)
-            this.targetRect.setAlpha(1.0)
+        // Restore golden target
+        if (this.targetPosition) {
+            if (this.targetGraphics) this.targetGraphics.destroy()
+            if (this.targetGlow) this.targetGlow.destroy()
+            this.drawTarget(this.targetPosition, 0xffdd00)
+            this.startTargetPulse()
         }
     }
 
@@ -458,26 +483,175 @@ export class GameRenderer extends Phaser.Scene {
 
     private renderWormholes(wormholes: Wormhole[]): void {
         this.wormholeGraphics = []
+        this.wormholeEntranceTweens = []
+        
         wormholes.forEach(w => {
-            // Exit only (entrance is invisible)
-            const exitRect = this.add.rectangle(
-                w.exit.x * CELL + CELL / 2,
-                w.exit.y * CELL + CELL / 2,
-                CELL - 8, CELL - 8, w.color, 0.6
-            )
-            this.wormholeGraphics.push(exitRect)
-
-            // Connection line from entrance to exit
+            const entranceX = w.entrance.x * CELL + CELL / 2
+            const entranceY = w.entrance.y * CELL + CELL / 2
+            const exitX = w.exit.x * CELL + CELL / 2
+            const exitY = w.exit.y * CELL + CELL / 2
+            
+            // Draw entrance as hollow ring with spiral (draw at origin, position with setPosition)
+            const entranceGraphics = this.add.graphics({ x: entranceX, y: entranceY })
+            this.drawWormholeEntrance(entranceGraphics, 0, 0, w.color)
+            this.wormholeGraphics.push(entranceGraphics)
+            
+            // Rotate entrance spiral around its center
+            const entranceTween = this.tweens.add({
+                targets: entranceGraphics,
+                angle: 360,
+                duration: 3000,
+                loop: -1,
+                ease: 'Linear'
+            })
+            this.wormholeEntranceTweens.push(entranceTween)
+            
+            // Draw exit as filled circle with outward arrow
+            const exitGraphics = this.add.graphics()
+            this.drawWormholeExit(exitGraphics, exitX, exitY, w.color)
+            this.wormholeGraphics.push(exitGraphics)
+            
+            // Connection line from entrance to exit (dashed effect)
             const line = this.add.graphics()
-            line.lineStyle(2, w.color, 0.3)
-            line.lineBetween(
-                w.entrance.x * CELL + CELL / 2,
-                w.entrance.y * CELL + CELL / 2,
-                w.exit.x * CELL + CELL / 2,
-                w.exit.y * CELL + CELL / 2
-            )
+            this.drawDashedLine(line, entranceX, entranceY, exitX, exitY, w.color)
             this.wormholeGraphics.push(line)
         })
+    }
+    
+    private drawWormholeEntrance(g: Phaser.GameObjects.Graphics, x: number, y: number, color: number): void {
+        const radius = CELL / 2 - 4
+        const innerRadius = radius - 4
+        
+        // Outer ring
+        g.lineStyle(3, color, 0.9)
+        g.strokeCircle(x, y, radius)
+        
+        // Inner ring
+        g.lineStyle(2, color, 0.5)
+        g.strokeCircle(x, y, innerRadius)
+        
+        // Spiral arms (suggest "sucking in")
+        g.lineStyle(2, color, 0.7)
+        for (let i = 0; i < 3; i++) {
+            const angle = (i * Math.PI * 2) / 3
+            const startX = x + Math.cos(angle) * innerRadius * 0.3
+            const startY = y + Math.sin(angle) * innerRadius * 0.3
+            const endX = x + Math.cos(angle + 0.5) * radius * 0.8
+            const endY = y + Math.sin(angle + 0.5) * radius * 0.8
+            g.lineBetween(startX, startY, endX, endY)
+        }
+    }
+    
+    private drawWormholeExit(g: Phaser.GameObjects.Graphics, x: number, y: number, color: number): void {
+        const radius = CELL / 2 - 4
+        
+        // Filled circle with lighter color
+        const lighterColor = this.lightenColor(color, 0.3)
+        g.fillStyle(lighterColor, 0.6)
+        g.fillCircle(x, y, radius)
+        
+        // Border
+        g.lineStyle(2, color, 0.9)
+        g.strokeCircle(x, y, radius)
+        
+        // Outward arrows (4 directions)
+        g.lineStyle(2, color, 0.8)
+        const arrowSize = 6
+        const arrowDist = radius * 0.5
+        
+        // Draw 4 outward chevrons
+        for (let i = 0; i < 4; i++) {
+            const angle = (i * Math.PI) / 2
+            const tipX = x + Math.cos(angle) * arrowDist
+            const tipY = y + Math.sin(angle) * arrowDist
+            
+            // Chevron pointing outward
+            const leftX = tipX - Math.cos(angle) * arrowSize + Math.cos(angle + Math.PI/2) * arrowSize * 0.5
+            const leftY = tipY - Math.sin(angle) * arrowSize + Math.sin(angle + Math.PI/2) * arrowSize * 0.5
+            const rightX = tipX - Math.cos(angle) * arrowSize - Math.cos(angle + Math.PI/2) * arrowSize * 0.5
+            const rightY = tipY - Math.sin(angle) * arrowSize - Math.sin(angle + Math.PI/2) * arrowSize * 0.5
+            
+            g.lineBetween(leftX, leftY, tipX, tipY)
+            g.lineBetween(rightX, rightY, tipX, tipY)
+        }
+    }
+    
+    private drawDashedLine(g: Phaser.GameObjects.Graphics, x1: number, y1: number, x2: number, y2: number, color: number): void {
+        const dashLength = 8
+        const gapLength = 6
+        
+        const dx = x2 - x1
+        const dy = y2 - y1
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        const dashCount = Math.floor(distance / (dashLength + gapLength))
+        
+        const unitX = dx / distance
+        const unitY = dy / distance
+        
+        g.lineStyle(2, color, 0.3)
+        
+        for (let i = 0; i < dashCount; i++) {
+            const startDist = i * (dashLength + gapLength)
+            const endDist = startDist + dashLength
+            
+            g.lineBetween(
+                x1 + unitX * startDist,
+                y1 + unitY * startDist,
+                x1 + unitX * endDist,
+                y1 + unitY * endDist
+            )
+        }
+    }
+    
+    private drawTarget(pos: Position, color: number): void {
+        const x = pos.x * CELL + CELL / 2
+        const y = pos.y * CELL + CELL / 2
+        const outerRadius = CELL / 2 - 2
+        const innerRadius = outerRadius * 0.5
+        
+        // Draw glow behind
+        this.targetGlow = this.add.graphics()
+        this.targetGlow.fillStyle(color, 0.3)
+        this.targetGlow.fillCircle(x, y, outerRadius + 4)
+        
+        // Draw star
+        this.targetGraphics = this.add.graphics()
+        this.targetGraphics.fillStyle(color, 1.0)
+        
+        // 5-pointed star
+        const points: number[] = []
+        for (let i = 0; i < 10; i++) {
+            const angle = (i * Math.PI) / 5 - Math.PI / 2 // Start from top
+            const radius = i % 2 === 0 ? outerRadius : innerRadius
+            points.push(x + Math.cos(angle) * radius)
+            points.push(y + Math.sin(angle) * radius)
+        }
+        
+        this.targetGraphics.fillPoints(points, true)
+        
+        // Add border
+        this.targetGraphics.lineStyle(2, 0xffffff, 0.8)
+        this.targetGraphics.strokePoints(points, true)
+    }
+    
+    private startTargetPulse(): void {
+        if (this.targetGlow) {
+            this.targetPulseTween = this.tweens.add({
+                targets: this.targetGlow,
+                alpha: { from: 0.3, to: 0.8 },
+                duration: 800,
+                loop: -1,
+                yoyo: true,
+                ease: 'Sine.easeInOut'
+            })
+        }
+    }
+    
+    private lightenColor(color: number, amount: number): number {
+        const r = Math.min(255, ((color >> 16) & 0xff) + 255 * amount)
+        const g = Math.min(255, ((color >> 8) & 0xff) + 255 * amount)
+        const b = Math.min(255, (color & 0xff) + 255 * amount)
+        return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
     }
 
     private handlePlayerTeleported(evt_player_teleported: Evt_PlayerTeleported): void {
