@@ -55,19 +55,17 @@ export const countStrategyMinimal: WormholeCountStrategy = (
 }
 
 /**
- * Count Strategy: Per-Player
- * - Roughly one wormhole per player
- * - Creates individual strategic options
+ * Count Strategy: Fixed Ratio to Number of Players
+ * - Scales the number of wormholes based on a fixed ratio of players
+ * - Useful for maintaining consistent gameplay dynamics
  */
-export const countStrategyPerPlayer: WormholeCountStrategy = (
-    gridWidth: number,
-    gridHeight: number,
-    playerCount: number
-): number => {
-    const gridCells = gridWidth * gridHeight
-    const densityCap = Math.floor(gridCells / 15)
-    
-    return Math.max(1, Math.min(playerCount, densityCap))
+export const createPlayerRatioCountStrategy = (ratio: number): WormholeCountStrategy => {
+    return (gridWidth: number, gridHeight: number, playerCount: number): number => {
+        const gridCells = gridWidth * gridHeight
+        const densityCap = Math.floor(gridCells / 15)
+        
+        return Math.max(1, Math.min(Math.floor(playerCount * ratio), densityCap))
+    }
 }
 
 /**

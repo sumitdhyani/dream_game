@@ -268,3 +268,89 @@ export type WormholeGenerator = (
     target: Position,
     players: Player[]
 ) => Wormhole[]
+
+/**
+ * Constraints for wormhole generation.
+ * Only includes fields that are actively used in the generation algorithm.
+ */
+export type WormHoleConstraints = {
+    /** Maximum Manhattan distance from entrance to any player */
+    maxDistanceFromPlayers: number
+    /** Maximum Manhattan distance from exit to target */
+    maxDistanceToTarget: number
+    /** Minimum Manhattan distance between entrance and exit */
+    lengthMin: number
+    /** Maximum Manhattan distance between entrance and exit */
+    lengthMax: number
+}
+
+/**
+ * Default wormhole constraints
+ */
+const DEFAULT_WORMHOLE_CONSTRAINTS: WormHoleConstraints = {
+    maxDistanceFromPlayers: 10,
+    maxDistanceToTarget: 15,
+    lengthMin: 5,
+    lengthMax: 40,
+}
+
+/**
+ * Validation error for wormhole constraints
+ */
+export class WormholeConstraintError extends Error {
+    constructor(message: string) {
+        super(`Invalid WormholeConstraints: ${message}`)
+        this.name = 'WormholeConstraintError'
+    }
+}
+
+/**
+ * Factory function to create validated WormHoleConstraints.
+ * Merges provided config with defaults and validates interdependent rules.
+ * 
+ * @param config - Partial constraints to override defaults
+ * @returns Validated WormHoleConstraints
+ * @throws WormholeConstraintError if constraints are invalid
+ */
+export function createWormholeConstraints(config: Partial<WormHoleConstraints> = {}): WormHoleConstraints {
+    const constraints: WormHoleConstraints = {
+        ...DEFAULT_WORMHOLE_CONSTRAINTS,
+        ...config
+    }
+
+    // Validate non-negative values
+    const fields: (keyof WormHoleConstraints)[] = [
+        'maxDistanceFromPlayers',
+        'maxDistanceToTarget',
+        'lengthMin',
+        'lengthMax'
+    ]
+    
+    for (const field of fields) {
+        if (constraints[field] < 0) {
+            throw new WormholeConstraintError(`${field} must be >= 0, got ${constraints[field]}`)
+        }
+    }
+
+    // Validate interdependent constraints
+    if (constraints.lengthMin > constraints.lengthMax) {
+        throw new WormholeConstraintError(
+            `lengthMin (${constraints.lengthMin}) must be <= lengthMax (${constraints.lengthMax})`
+        )
+    }
+
+    // Validate sensible ranges
+    if (constraints.maxDistanceFromPlayers < 1) {
+        throw new WormholeConstraintError(
+            `maxDistanceFromPlayers must be >= 1, got ${constraints.maxDistanceFromPlayers}`
+        )
+    }
+
+    if (constraints.maxDistanceToTarget < 1) {
+        throw new WormholeConstraintError(
+            `maxDistanceToTarget must be >= 1, got ${constraints.maxDistanceToTarget}`
+        )
+    }
+
+    return constraints
+}

@@ -1,10 +1,9 @@
-import { Position, Wormhole, Player, WormholeGenerator } from '../GlobalGameReference.js'
+import { Position, Wormhole, Player, WormholeGenerator, WormHoleConstraints } from '../GlobalGameReference.js'
 import { strategyAverage, strategyMinimum, strategyGeometricMean, strategyHarmonicMean, strategyMedian, createSoftMinStrategy, createVariancePenalizedStrategy, IndecisionStrategy } from './IndecisionStrategy.js'
-import {WormholeCountStrategy,
-        countStrategyBalanced,
-        countStrategyMinimal,
-        countStrategyPerPlayer
-     } from './CountStrategy.js'
+import { WormholeCountStrategy } from './CountStrategy.js'
+
+
+
 /**
  * Player data needed for indecision calculation
  */
@@ -187,28 +186,14 @@ class TopKHeap {
 const TOP_K_MULTIPLIER = 5
 
 /**
- * Configuration for spatial pruning
- */
-const SPATIAL_CONFIG = {
-    /** Max radius around each player to consider for entrances */
-    ENTRANCE_RADIUS: 8,
-    /** Max radius around target to consider for exits */
-    EXIT_RADIUS: 10,
-    /** For large grids, also sample random cells to avoid missing good spots */
-    RANDOM_SAMPLE_COUNT: 50,
-    /** Minimum cells to check even on small grids */
-    MIN_ENTRANCE_CELLS: 20,
-    MIN_EXIT_CELLS: 20,
-}
-
-/**
  * Generate candidate entrance positions near players
  */
 function generateEntranceCandidates(
     gridWidth: number,
     gridHeight: number,
     players: PlayerIndecisionInput[],
-    occupied: Set<string>
+    occupied: Set<string>,
+    wormholeConstraints: WormHoleConstraints
 ): Position[] {
     const candidateSet = new Set<string>()
     const candidates: Position[] = []
@@ -222,7 +207,7 @@ function generateEntranceCandidates(
     }
 
     // Add cells within radius of each player
-    const radius = SPATIAL_CONFIG.ENTRANCE_RADIUS
+    const radius = wormholeConstraints.maxDistanceFromPlayers
     for (const player of players) {
         const px = player.position.x
         const py = player.position.y
@@ -260,7 +245,8 @@ function generateExitCandidates(
     gridWidth: number,
     gridHeight: number,
     target: Position,
-    occupied: Set<string>
+    occupied: Set<string>,
+    wormholeConstraints: WormHoleConstraints
 ): Position[] {
     const candidateSet = new Set<string>()
     const candidates: Position[] = []
@@ -274,7 +260,7 @@ function generateExitCandidates(
     }
 
     // Add cells within radius of target
-    const radius = SPATIAL_CONFIG.EXIT_RADIUS
+    const radius = wormholeConstraints.maxDistanceToTarget
     for (let dx = -radius; dx <= radius; dx++) {
         for (let dy = -radius; dy <= radius; dy++) {
             if (Math.abs(dx) + Math.abs(dy) <= radius) {
@@ -312,7 +298,8 @@ function streamCandidatesToTopK(
     target: Position,
     players: PlayerIndecisionInput[],
     strategy: IndecisionStrategy,
-    maxWormholes: number
+    maxWormholes: number,
+    wormholeConstraints: WormHoleConstraints
 ): ScoredWormholeCandidate[] {
     const occupied = new Set<string>()
     occupied.add(`${target.x},${target.y}`)
@@ -323,8 +310,8 @@ function streamCandidatesToTopK(
     const topK = new TopKHeap(heapCapacity)
 
     // Generate spatially-pruned candidate positions
-    const entranceCandidates = generateEntranceCandidates(gridWidth, gridHeight, players, occupied)
-    const exitCandidates = generateExitCandidates(gridWidth, gridHeight, target, occupied)
+    const entranceCandidates = generateEntranceCandidates(gridWidth, gridHeight, players, occupied, wormholeConstraints)
+    const exitCandidates = generateExitCandidates(gridWidth, gridHeight, target, occupied, wormholeConstraints)
 
     // Precompute exit distances to target
     const exitDistances = new Map<string, number>()
@@ -343,6 +330,11 @@ function streamCandidatesToTopK(
             // Exit must be closer to target than entrance
             const exitToTarget = exitDistances.get(`${exit.x},${exit.y}`)!
             if (exitToTarget >= entranceToTarget) continue
+
+            // Check wormhole length constraints
+            const wormholeLength = Math.abs(entrance.x - exit.x) + Math.abs(entrance.y - exit.y)
+            if (wormholeLength < wormholeConstraints.lengthMin) continue
+            if (wormholeLength > wormholeConstraints.lengthMax) continue
 
             const candidate: WormholeCandidate = { entrance, exit }
 
@@ -405,7 +397,7 @@ function generateCandidates(
  * Create a wormhole generator using a specific indecision strategy
  * Uses streaming top-K approach for O(K) memory instead of O(W²H²)
  */
-export function wormHoleGeneratorFactory(strategy: IndecisionStrategy, countStrategy: WormholeCountStrategy): WormholeGenerator {
+export function wormHoleGeneratorFactory(strategy: IndecisionStrategy, countStrategy: WormholeCountStrategy, constraints: WormHoleConstraints): WormholeGenerator {
     
     return (
         gridWidth: number,
@@ -428,7 +420,8 @@ export function wormHoleGeneratorFactory(strategy: IndecisionStrategy, countStra
             target,
             playerIndecisionInput,
             strategy,
-            maxWormholes
+            maxWormholes,
+            constraints
         )
         
         // Select top non-overlapping wormholes
@@ -488,6 +481,7 @@ export function debugWormholeScoring(
     players: Player[],
     indecisionStrategies: { name: string; strategy: IndecisionStrategy }[],
     countStrategies     : { name: string; strategy: WormholeCountStrategy }[],
+    wormholeConstraints: WormHoleConstraints
 ): void {
     const candidates = generateCandidates(gridWidth, gridHeight, target, players)
     
@@ -500,7 +494,7 @@ export function debugWormholeScoring(
 
     indecisionStrategies.forEach(({ name, strategy }) => {
         countStrategies.forEach(({ name: countName, strategy: countStrategy }) => {
-            const generator = wormHoleGeneratorFactory(strategy, countStrategy)
+            const generator = wormHoleGeneratorFactory(strategy, countStrategy, wormholeConstraints)
             const wormholes = generator(gridWidth, gridHeight, target, players)
             
             console.log(`Indecision Strategy: ${name} | Count Strategy: ${countName}`)

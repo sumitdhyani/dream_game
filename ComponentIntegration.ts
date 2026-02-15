@@ -62,7 +62,7 @@ import { wormHoleGeneratorFactory } from "./WormholeGeneration/WormholeCreationS
 import { WormholeCountStrategy, 
          countStrategyBalanced,
          countStrategyMinimal,
-         countStrategyPerPlayer } from "./WormholeGeneration/CountStrategy.js";
+         createPlayerRatioCountStrategy } from "./WormholeGeneration/CountStrategy.js";
          
 import { IndecisionStrategy,
          strategyAverage,
@@ -72,6 +72,8 @@ import { IndecisionStrategy,
         strategyMinimum,
         createVariancePenalizedStrategy,
         createSoftMinStrategy } from "./WormholeGeneration/IndecisionStrategy.js";
+
+import { WormHoleConstraints, createWormholeConstraints } from "./GlobalGameReference.js";
 
 // Simple console logger implementation
 const logger : Logger = {
@@ -124,7 +126,14 @@ export function setupBridge(gameRenderer: GameRenderer) {
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
     TargetSelectors.hybrid,
-    wormHoleGeneratorFactory(strategyAverage, countStrategyBalanced),
+    wormHoleGeneratorFactory(strategyAverage, createPlayerRatioCountStrategy(2), 
+      createWormholeConstraints({
+        lengthMin: 10,
+        lengthMax: 30,
+        maxDistanceToTarget: 15,
+        maxDistanceFromPlayers: 10,
+      })
+    ),
     logger)
 
   serverNW.propagateGuiEvt = gameEngineFSM.handleEvent.bind(gameEngineFSM);

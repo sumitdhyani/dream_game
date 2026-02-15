@@ -52,6 +52,11 @@ export class GameRenderer extends Phaser.Scene {
     private wormholeGraphics: Phaser.GameObjects.Graphics[]
     private wormholeEntranceTweens: Phaser.Tweens.Tween[]
     private pendingEvents: PendingEvent[]
+    
+    // Keyboard state tracking for smooth held-key movement
+    private keysPressed: Set<number>
+    private lastMoveTime: number
+    private moveInterval: number  // ms between moves when key is held
     guiEvtListener : FGuiEventListener | null
     botClientFactory: ((botPlayers: BotPlayer[], guiEvtSender: FGuiEventListener) => void) | null
 
@@ -76,6 +81,9 @@ export class GameRenderer extends Phaser.Scene {
         this.wormholeGraphics = []
         this.wormholeEntranceTweens = []
         this.pendingEvents = []
+        this.keysPressed = new Set()
+        this.lastMoveTime = 0
+        this.moveInterval = 100  // Move every 100ms when key is held
         this.guiEvtListener = null
         this.botClientFactory = null
         this.configUI = null
@@ -101,20 +109,49 @@ export class GameRenderer extends Phaser.Scene {
     create(): void {
         this.drawGrid()
 
+        // Track key state instead of relying on OS key repeat
         this.input.keyboard!.on("keydown-LEFT", () => {
-            this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.LEFT, Date.now()))
+            if (!this.keysPressed.has(keyboardKeys.LEFT)) {
+                this.keysPressed.add(keyboardKeys.LEFT)
+                this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.LEFT, Date.now()))
+                this.lastMoveTime = Date.now()
+            }
+        })
+        this.input.keyboard!.on("keyup-LEFT", () => {
+            this.keysPressed.delete(keyboardKeys.LEFT)
         })
 
         this.input.keyboard!.on("keydown-RIGHT", () => {
-          this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.RIGHT, Date.now()))
+            if (!this.keysPressed.has(keyboardKeys.RIGHT)) {
+                this.keysPressed.add(keyboardKeys.RIGHT)
+                this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.RIGHT, Date.now()))
+                this.lastMoveTime = Date.now()
+            }
+        })
+        this.input.keyboard!.on("keyup-RIGHT", () => {
+            this.keysPressed.delete(keyboardKeys.RIGHT)
         })
 
         this.input.keyboard!.on("keydown-UP", () => {
-            this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.UP, Date.now()))
+            if (!this.keysPressed.has(keyboardKeys.UP)) {
+                this.keysPressed.add(keyboardKeys.UP)
+                this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.UP, Date.now()))
+                this.lastMoveTime = Date.now()
+            }
+        })
+        this.input.keyboard!.on("keyup-UP", () => {
+            this.keysPressed.delete(keyboardKeys.UP)
         })
 
         this.input.keyboard!.on("keydown-DOWN", () => {
-            this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.DOWN, Date.now()))
+            if (!this.keysPressed.has(keyboardKeys.DOWN)) {
+                this.keysPressed.add(keyboardKeys.DOWN)
+                this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, keyboardKeys.DOWN, Date.now()))
+                this.lastMoveTime = Date.now()
+            }
+        })
+        this.input.keyboard!.on("keyup-DOWN", () => {
+            this.keysPressed.delete(keyboardKeys.DOWN)
         })
 
         this.events.once("shutdown", () => {
@@ -703,6 +740,26 @@ export class GameRenderer extends Phaser.Scene {
 
     update(time: number, delta: number): void {
         this.processPendingEvents()
+        this.processHeldKeys()
+    }
+    
+    private processHeldKeys(): void {
+        // Check if enough time has passed since last move
+        if (this.keysPressed.size === 0) return
+        
+        const now = Date.now()
+        if (now - this.lastMoveTime < this.moveInterval) return
+        
+        // Process the first held key (priority: UP, DOWN, LEFT, RIGHT)
+        const priorityOrder = [keyboardKeys.UP, keyboardKeys.DOWN, keyboardKeys.LEFT, keyboardKeys.RIGHT]
+        
+        for (const key of priorityOrder) {
+            if (this.keysPressed.has(key)) {
+                this.propagateGuiEvt(GuiEventType.key_press, new KeyPressEvent(SELF_PLAYER_ID, key, now))
+                this.lastMoveTime = now
+                break  // Only process one key per interval
+            }
+        }
     }
 
     private renderPlayers(players: Player[]): void {
