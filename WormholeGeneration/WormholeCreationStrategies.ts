@@ -177,7 +177,7 @@ class TopKHeap {
 }
 
 // =============================================================================
-// WORMHOLE GENERATION (STREAMING TOP-K)
+// WORMHOLE GENERATION (STREAMING TOP-K WITH SPATIAL PRUNING)
 // =============================================================================
 
 /**
@@ -187,9 +187,124 @@ class TopKHeap {
 const TOP_K_MULTIPLIER = 5
 
 /**
- * Stream wormhole candidates through a top-K heap.
- * Instead of storing all O(W²H²) candidates, we only keep the best K.
- * Memory: O(K) instead of O(W²H²)
+ * Configuration for spatial pruning
+ */
+const SPATIAL_CONFIG = {
+    /** Max radius around each player to consider for entrances */
+    ENTRANCE_RADIUS: 8,
+    /** Max radius around target to consider for exits */
+    EXIT_RADIUS: 10,
+    /** For large grids, also sample random cells to avoid missing good spots */
+    RANDOM_SAMPLE_COUNT: 50,
+    /** Minimum cells to check even on small grids */
+    MIN_ENTRANCE_CELLS: 20,
+    MIN_EXIT_CELLS: 20,
+}
+
+/**
+ * Generate candidate entrance positions near players
+ */
+function generateEntranceCandidates(
+    gridWidth: number,
+    gridHeight: number,
+    players: PlayerIndecisionInput[],
+    occupied: Set<string>
+): Position[] {
+    const candidateSet = new Set<string>()
+    const candidates: Position[] = []
+
+    const addCandidate = (x: number, y: number) => {
+        if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) return
+        const key = `${x},${y}`
+        if (occupied.has(key) || candidateSet.has(key)) return
+        candidateSet.add(key)
+        candidates.push(new Position(x, y))
+    }
+
+    // Add cells within radius of each player
+    const radius = SPATIAL_CONFIG.ENTRANCE_RADIUS
+    for (const player of players) {
+        const px = player.position.x
+        const py = player.position.y
+        
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                if (Math.abs(dx) + Math.abs(dy) <= radius) {
+                    let X = px + dx
+                    let Y = py + dy
+                    X = Math.max(0, Math.min(gridWidth - 1, X)) // Clamp to grid
+                    Y = Math.max(0, Math.min(gridHeight - 1, Y)) // Clamp to grid 
+                    addCandidate(X, Y)
+                }
+            }
+        }
+    }
+
+    // Add some random samples for coverage on large grids
+    // const totalCells = gridWidth * gridHeight
+    // if (totalCells > 500) {
+    //     for (let i = 0; i < SPATIAL_CONFIG.RANDOM_SAMPLE_COUNT; i++) {
+    //         const x = Math.floor(Math.random() * gridWidth)
+    //         const y = Math.floor(Math.random() * gridHeight)
+    //         addCandidate(x, y)
+    //     }
+    // }
+
+    return candidates
+}
+
+/**
+ * Generate candidate exit positions near target
+ */
+function generateExitCandidates(
+    gridWidth: number,
+    gridHeight: number,
+    target: Position,
+    occupied: Set<string>
+): Position[] {
+    const candidateSet = new Set<string>()
+    const candidates: Position[] = []
+
+    const addCandidate = (x: number, y: number) => {
+        if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) return
+        const key = `${x},${y}`
+        if (occupied.has(key) || candidateSet.has(key)) return
+        candidateSet.add(key)
+        candidates.push(new Position(x, y))
+    }
+
+    // Add cells within radius of target
+    const radius = SPATIAL_CONFIG.EXIT_RADIUS
+    for (let dx = -radius; dx <= radius; dx++) {
+        for (let dy = -radius; dy <= radius; dy++) {
+            if (Math.abs(dx) + Math.abs(dy) <= radius) {
+                let X = target.x + dx
+                let Y = target.y + dy
+                X = Math.max(0, Math.min(gridWidth - 1, X)) // Clamp to grid
+                Y = Math.max(0, Math.min(gridHeight - 1, Y)) // Clamp to grid 
+                addCandidate(X, Y)
+            }
+        }
+    }
+
+    // // Add some random samples closer to target
+    // const totalCells = gridWidth * gridHeight
+    // if (totalCells > 500) {
+    //     for (let i = 0; i < SPATIAL_CONFIG.RANDOM_SAMPLE_COUNT; i++) {
+    //         // Bias random samples toward target quadrant
+    //         const x = Math.floor(target.x + (Math.random() - 0.5) * gridWidth * 0.5)
+    //         const y = Math.floor(target.y + (Math.random() - 0.5) * gridHeight * 0.5)
+    //         addCandidate(Math.max(0, Math.min(gridWidth - 1, x)), Math.max(0, Math.min(gridHeight - 1, y)))
+    //     }
+    // }
+
+    return candidates
+}
+
+/**
+ * Stream wormhole candidates through a top-K heap with spatial pruning.
+ * Instead of O(W²H²), we only check O(E × X) where E = entrance candidates, X = exit candidates.
+ * Typically E ≈ players × radius² and X ≈ radius², so this is O(P × R⁴) which is much smaller.
  */
 function streamCandidatesToTopK(
     gridWidth: number,
@@ -207,35 +322,37 @@ function streamCandidatesToTopK(
     const heapCapacity = maxWormholes * TOP_K_MULTIPLIER
     const topK = new TopKHeap(heapCapacity)
 
-    // Stream through all valid (entrance, exit) pairs
-    for (let ex = 0; ex < gridWidth; ex++) {
-        for (let ey = 0; ey < gridHeight; ey++) {
-            if (occupied.has(`${ex},${ey}`)) continue
-            
-            const entranceToTarget = Math.abs(ex - target.x) + Math.abs(ey - target.y)
+    // Generate spatially-pruned candidate positions
+    const entranceCandidates = generateEntranceCandidates(gridWidth, gridHeight, players, occupied)
+    const exitCandidates = generateExitCandidates(gridWidth, gridHeight, target, occupied)
 
-            for (let xx = 0; xx < gridWidth; xx++) {
-                for (let xy = 0; xy < gridHeight; xy++) {
-                    if (occupied.has(`${xx},${xy}`)) continue
-                    if (ex === xx && ey === xy) continue
+    // Precompute exit distances to target
+    const exitDistances = new Map<string, number>()
+    for (const exit of exitCandidates) {
+        exitDistances.set(`${exit.x},${exit.y}`, Math.abs(exit.x - target.x) + Math.abs(exit.y - target.y))
+    }
 
-                    // Exit must be closer to target than entrance (inline check)
-                    const exitToTarget = Math.abs(xx - target.x) + Math.abs(xy - target.y)
-                    if (exitToTarget >= entranceToTarget) continue
+    // Stream through pruned (entrance, exit) pairs
+    for (const entrance of entranceCandidates) {
+        const entranceToTarget = Math.abs(entrance.x - target.x) + Math.abs(entrance.y - target.y)
 
-                    const entrance = new Position(ex, ey)
-                    const exit = new Position(xx, xy)
-                    const candidate: WormholeCandidate = { entrance, exit }
+        for (const exit of exitCandidates) {
+            // Skip if same position
+            if (entrance.x === exit.x && entrance.y === exit.y) continue
 
-                    // Score and try to add to heap
-                    const score = scoreWormhole(candidate, target, players, strategy)
-                    
-                    // Early skip: if score can't beat current minimum, don't bother
-                    if (topK.size >= heapCapacity && score <= topK.minScore) continue
+            // Exit must be closer to target than entrance
+            const exitToTarget = exitDistances.get(`${exit.x},${exit.y}`)!
+            if (exitToTarget >= entranceToTarget) continue
 
-                    topK.tryAdd({ wormholeCandidate: candidate, score })
-                }
-            }
+            const candidate: WormholeCandidate = { entrance, exit }
+
+            // Score and try to add to heap
+            const score = scoreWormhole(candidate, target, players, strategy)
+
+            // Early skip: if score can't beat current minimum, don't bother
+            if (topK.size >= heapCapacity && score <= topK.minScore) continue
+
+            topK.tryAdd({ wormholeCandidate: candidate, score })
         }
     }
 

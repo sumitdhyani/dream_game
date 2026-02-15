@@ -3,8 +3,8 @@
 // ============================================================================
 
 export const CELL = 32
-export const GRID_W = 40
-export const GRID_H = 40
+export const GRID_W = 80
+export const GRID_H = 80
 
 export const Events = {
     GAME_START: 0,
