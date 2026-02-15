@@ -18,7 +18,7 @@ export type IndecisionStrategy = (
  * - Rewards wormholes good for most players
  * - Tolerates one player having obvious choice
  */
-export const strategyAverage: IndecisionStrategy = (scores: number[]): number => {
+export const indecisionStrategyAverage: IndecisionStrategy = (scores: number[]): number => {
     if (scores.length === 0) return 0
     return scores.reduce((sum, s) => sum + s, 0) / scores.length
 }
@@ -28,7 +28,7 @@ export const strategyAverage: IndecisionStrategy = (scores: number[]): number =>
  * - Ensures EVERY player faces a real choice
  * - Very strict, one outlier tanks the score
  */
-export const strategyMinimum: IndecisionStrategy = (scores: number[]): number => {
+export const indecisionStrategyMinimum: IndecisionStrategy = (scores: number[]): number => {
     if (scores.length === 0) return 0
     return Math.min(...scores)
 }
@@ -38,7 +38,7 @@ export const strategyMinimum: IndecisionStrategy = (scores: number[]): number =>
  * - Punishes zeros harshly but less extreme than min
  * - Good balance between "everyone cares" and practicality
  */
-export const strategyGeometricMean: IndecisionStrategy = (scores: number[]): number => {
+export const indecisionStrategyGeometricMean: IndecisionStrategy = (scores: number[]): number => {
     if (scores.length === 0) return 0
     // Add small epsilon to avoid zero product
     const epsilon = 0.001
@@ -51,7 +51,7 @@ export const strategyGeometricMean: IndecisionStrategy = (scores: number[]): num
  * - Even more sensitive to low values than geometric mean
  * - Heavily penalizes any player with obvious choice
  */
-export const strategyHarmonicMean: IndecisionStrategy = (scores: number[]): number => {
+export const indecisionStrategyHarmonicMean: IndecisionStrategy = (scores: number[]): number => {
     if (scores.length === 0) return 0
     const epsilon = 0.001
     const sumReciprocals = scores.reduce((sum, s) => sum + 1 / (s + epsilon), 0)
@@ -69,7 +69,7 @@ export const strategyHarmonicMean: IndecisionStrategy = (scores: number[]): numb
         
 //         // If no player metadata, fall back to average
 //         if (!players || players.length !== scores.length) {
-//             return strategyAverage(scores)
+//             return indecisionStrategyAverage(scores)
 //         }
         
 //         let humanScore = 0
@@ -99,7 +99,7 @@ export const strategyHarmonicMean: IndecisionStrategy = (scores: number[]): numb
  * - Robust to outliers
  * - Ensures at least half the players have good indecision
  */
-export const strategyMedian: IndecisionStrategy = (scores: number[]): number => {
+export const indecisionStrategyMedian: IndecisionStrategy = (scores: number[]): number => {
     if (scores.length === 0) return 0
     const sorted = [...scores].sort((a, b) => a - b)
     const mid = Math.floor(sorted.length / 2)
@@ -133,7 +133,7 @@ export function createSoftMinStrategy(temperature: number = 5): IndecisionStrate
 export function createVariancePenalizedStrategy(variancePenalty: number = 0.5): IndecisionStrategy {
     return (scores: number[]): number => {
         if (scores.length === 0) return 0
-        const avg = strategyAverage(scores)
+        const avg = indecisionStrategyAverage(scores)
         const variance = scores.reduce((sum, s) => sum + Math.pow(s - avg, 2), 0) / scores.length
         return avg - variancePenalty * Math.sqrt(variance)
     }

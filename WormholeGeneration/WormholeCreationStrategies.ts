@@ -1,5 +1,5 @@
 import { Position, Wormhole, Player, WormholeGenerator, WormHoleConstraints } from '../GlobalGameReference.js'
-import { strategyAverage, strategyMinimum, strategyGeometricMean, strategyHarmonicMean, strategyMedian, createSoftMinStrategy, createVariancePenalizedStrategy, IndecisionStrategy } from './IndecisionStrategy.js'
+import { IndecisionStrategy } from './IndecisionStrategy.js'
 import { WormholeCountStrategy } from './CountStrategy.js'
 
 

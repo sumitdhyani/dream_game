@@ -65,11 +65,11 @@ import { WormholeCountStrategy,
          createPlayerRatioCountStrategy } from "./WormholeGeneration/CountStrategy.js";
          
 import { IndecisionStrategy,
-         strategyAverage,
-         strategyGeometricMean,
-         strategyHarmonicMean,
-        strategyMedian,
-        strategyMinimum,
+         indecisionStrategyAverage,
+         indecisionStrategyGeometricMean,
+         indecisionStrategyHarmonicMean,
+        indecisionStrategyMedian,
+        indecisionStrategyMinimum,
         createVariancePenalizedStrategy,
         createSoftMinStrategy } from "./WormholeGeneration/IndecisionStrategy.js";
 
@@ -126,7 +126,7 @@ export function setupBridge(gameRenderer: GameRenderer) {
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
     TargetSelectors.hybrid,
-    wormHoleGeneratorFactory(strategyAverage, createPlayerRatioCountStrategy(2), 
+    wormHoleGeneratorFactory(indecisionStrategyAverage, createPlayerRatioCountStrategy(3), 
       createWormholeConstraints({
         lengthMin: 10,
         lengthMax: 30,
