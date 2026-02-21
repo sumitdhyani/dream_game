@@ -1,4 +1,4 @@
-import { Position, Wormhole, Player, WormholeGenerator, WormHoleConstraints } from '../GlobalGameReference.js'
+import { Position, Wormhole, Player, WormholeGenerator, WormHoleConstraints, WormholeConstraintCalculator, GameContextFactors } from '../GlobalGameReference.js'
 import { IndecisionStrategy } from './IndecisionStrategy.js'
 import { WormholeCountStrategy } from './CountStrategy.js'
 
@@ -394,10 +394,18 @@ function generateCandidates(
 }
 
 /**
- * Create a wormhole generator using a specific indecision strategy
- * Uses streaming top-K approach for O(K) memory instead of O(W²H²)
+ * Create a wormhole generator using a specific indecision strategy.
+ * Uses streaming top-K approach for O(K) memory instead of O(W²H²).
+ * 
+ * @param strategy - Indecision aggregation strategy
+ * @param countStrategy - Strategy for determining wormhole count
+ * @param constraintsOrCalculator - Either static constraints or a function to calculate them dynamically
  */
-export function wormHoleGeneratorFactory(strategy: IndecisionStrategy, countStrategy: WormholeCountStrategy, constraints: WormHoleConstraints): WormholeGenerator {
+export function wormHoleGeneratorFactory(
+    strategy: IndecisionStrategy, 
+    countStrategy: WormholeCountStrategy, 
+    constraintsOrCalculator: WormHoleConstraints | WormholeConstraintCalculator
+): WormholeGenerator {
     
     return (
         gridWidth: number,
@@ -405,6 +413,11 @@ export function wormHoleGeneratorFactory(strategy: IndecisionStrategy, countStra
         target: Position,
         players: Player[]
     ): Wormhole[] => {
+        // Resolve constraints - either use static or calculate dynamically
+        const constraints: WormHoleConstraints = typeof constraintsOrCalculator === 'function'
+            ? constraintsOrCalculator({ gridWidth, gridHeight, playerCount: players.length })
+            : constraintsOrCalculator
+        
         const playerIndecisionInput: PlayerIndecisionInput[] = players.map(p => ({
             id: p.id,
             position: p.position,

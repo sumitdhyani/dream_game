@@ -73,7 +73,7 @@ import { IndecisionStrategy,
         createVariancePenalizedStrategy,
         createSoftMinStrategy } from "./WormholeGeneration/IndecisionStrategy.js";
 
-import { WormHoleConstraints, createWormholeConstraints } from "./GlobalGameReference.js";
+import { WormHoleConstraints, createWormholeConstraints, calculateDynamicConstraints } from "./GlobalGameReference.js";
 
 // Simple console logger implementation
 const logger : Logger = {
@@ -126,13 +126,10 @@ export function setupBridge(gameRenderer: GameRenderer) {
   
   const gameEngineFSM: GameEngineFSM = new GameEngineFSM(serverNW.onGameEvt.bind(serverNW),
     TargetSelectors.hybrid,
-    wormHoleGeneratorFactory(indecisionStrategyAverage, createPlayerRatioCountStrategy(3), 
-      createWormholeConstraints({
-        lengthMin: 10,
-        lengthMax: 30,
-        maxDistanceToTarget: 15,
-        maxDistanceFromPlayers: 10,
-      })
+    wormHoleGeneratorFactory(
+      indecisionStrategyAverage, 
+      createPlayerRatioCountStrategy(3), 
+      calculateDynamicConstraints  // Dynamic constraints based on grid size and player count
     ),
     logger)
 

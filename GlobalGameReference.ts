@@ -3,8 +3,8 @@
 // ============================================================================
 
 export const CELL = 32
-export const GRID_W = 80
-export const GRID_H = 80
+export const GRID_W = 90
+export const GRID_H = 90
 
 export const Events = {
     GAME_START: 0,
@@ -353,4 +353,58 @@ export function createWormholeConstraints(config: Partial<WormHoleConstraints> =
     }
 
     return constraints
+}
+
+// =============================================================================
+// GAME CONTEXT FACTORS
+// =============================================================================
+
+/**
+ * Shared context factors used across multiple game systems.
+ * Can be extended as new features require additional context.
+ */
+export type GameContextFactors = {
+    gridWidth: number
+    gridHeight: number
+    playerCount: number
+    // Future extensions:
+    // roundNumber?: number
+    // timeRemaining?: number
+    // difficultyLevel?: number
+}
+
+/**
+ * Function type for calculating wormhole constraints dynamically
+ */
+export type WormholeConstraintCalculator = (factors: GameContextFactors) => WormHoleConstraints
+
+/**
+ * Calculate wormhole constraints dynamically based on game context.
+ * Scales constraints appropriately for different grid sizes and player counts.
+ */
+export function calculateDynamicConstraints(factors: GameContextFactors): WormHoleConstraints {
+    const { gridWidth, gridHeight, playerCount } = factors
+    
+    // Grid diagonal in Manhattan distance (max possible wormhole length)
+    const gridDiagonal = gridWidth + gridHeight
+    
+    // lengthMin: At least 5, scales gently with grid size
+    const lengthMin = Math.max(5, Math.floor(gridDiagonal / 20))
+    
+    // lengthMax: Wormholes shouldn't span more than half the grid
+    const lengthMax = Math.floor(gridDiagonal / 2)
+    
+    // maxDistanceFromPlayers: More players = slightly larger search area
+    // Clamped to reasonable bounds
+    const maxDistanceFromPlayers = Math.min(15, Math.max(6, 8 + Math.floor(playerCount / 2)))
+    
+    // maxDistanceToTarget: Scales with grid, but bounded
+    const maxDistanceToTarget = Math.min(20, Math.max(8, Math.floor(gridDiagonal / 10)))
+    
+    return createWormholeConstraints({
+        lengthMin,
+        lengthMax,
+        maxDistanceFromPlayers,
+        maxDistanceToTarget,
+    })
 }
